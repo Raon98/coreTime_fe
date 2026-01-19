@@ -6,7 +6,7 @@ import {
     Select, Stack, Switch, Box
 } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
-import { IconPlus, IconCurrencyKRW, IconEdit, IconCheck } from '@tabler/icons-react';
+import { IconPlus, IconCurrencyWon, IconEdit, IconCheck } from '@tabler/icons-react';
 import { useFinance, TicketProduct } from '@/context/FinanceContext';
 import { useForm } from '@mantine/form';
 
@@ -129,7 +129,7 @@ function CreateProductForm({ onClose, onSubmit }: any) {
                     <NumberInput
                         label="판매 가격"
                         required
-                        leftSection={<IconCurrencyKRW size={16} />}
+                        leftSection={<IconCurrencyWon size={16} />}
                         thousandSeparator
                         {...form.getInputProps('price')}
                     />

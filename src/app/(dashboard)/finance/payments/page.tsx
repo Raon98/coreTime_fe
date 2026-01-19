@@ -35,10 +35,10 @@ export default function PaymentPage() {
                 onClose={close}
                 members={members}
                 products={products}
-                onProcess={(memberId, productId, method) => {
+                onProcess={(memberId: string, productId: string, method: 'CARD' | 'CASH' | 'TRANSFER') => {
                     // 1. Process Logic
-                    const member = members.find(m => m.id === memberId);
-                    const product = products.find(p => p.id === productId);
+                    const member = members.find((m: any) => m.id === memberId);
+                    const product = products.find((p: any) => p.id === productId);
 
                     if (member && product) {
                         // A. Create Transaction Log
