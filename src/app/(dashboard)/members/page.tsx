@@ -3,35 +3,70 @@
 import {
     Title, Text, Container, Group, TextInput, Button,
     Table, Badge, ActionIcon, Menu, Avatar, Drawer,
-    Stack, Card, Progress, Tabs, ScrollArea, Box,
-    ThemeIcon
+    Stack, Card, Progress, Tabs, Box, MultiSelect,
+    Textarea
 } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
+import { notifications } from '@mantine/notifications';
 import {
     IconSearch, IconFilter, IconDotsVertical, IconMessage,
     IconEdit, IconUserPlus, IconTicket, IconNote, IconPhone,
-    IconClock
+    IconDeviceMobileMessage
 } from '@tabler/icons-react';
-import { useMembers, Member, Ticket } from '@/context/MemberContext';
+import { useMembers, Member } from '@/context/MemberContext';
 import { useState, useMemo } from 'react';
 import dayjs from 'dayjs';
+import MemberFormModal from '@/components/dashboard/members/MemberFormModal';
+import ConsultationLogList from '@/components/dashboard/members/ConsultationLogList';
+import AlimTalkModal from '@/components/dashboard/members/AlimTalkModal';
 
 export default function MemberListPage() {
     const { members, tickets } = useMembers();
     const [search, setSearch] = useState('');
+    const [statusFilter, setStatusFilter] = useState<string[]>([]);
+
+    // UI States
     const [selectedMember, setSelectedMember] = useState<Member | null>(null);
     const [drawerOpened, { open: openDrawer, close: closeDrawer }] = useDisclosure(false);
 
-    // Filtering
+    // Modals
+    const [isFormOpen, setIsFormOpen] = useState(false);
+    const [editTarget, setEditTarget] = useState<Member | null>(null);
+
+    const [isAlimTalkOpen, setIsAlimTalkOpen] = useState(false);
+    const [alimTalkTarget, setAlimTalkTarget] = useState<Member | null>(null);
+
+    // Filter Logic
     const filteredMembers = useMemo(() => {
-        return members.filter(m =>
-            m.name.includes(search) || m.phone.includes(search)
-        );
-    }, [members, search]);
+        return members.filter(m => {
+            const matchesSearch =
+                m.name.includes(search) ||
+                m.phone.includes(search);
+            const matchesStatus =
+                statusFilter.length === 0 ||
+                statusFilter.includes(m.status);
+            return matchesSearch && matchesStatus;
+        });
+    }, [members, search, statusFilter]);
 
     const handleRowClick = (member: Member) => {
         setSelectedMember(member);
         openDrawer();
+    };
+
+    const handleEditMember = (member: Member) => {
+        setEditTarget(member);
+        setIsFormOpen(true);
+    };
+
+    const handleNewMember = () => {
+        setEditTarget(null);
+        setIsFormOpen(true);
+    };
+
+    const handleSendAlimTalk = (member: Member) => {
+        setAlimTalkTarget(member);
+        setIsAlimTalkOpen(true);
     };
 
     return (
@@ -42,19 +77,34 @@ export default function MemberListPage() {
                     <Title order={2}>회원 목록 (Member List)</Title>
                     <Text c="dimmed">전체 회원을 조회하고 관리합니다.</Text>
                 </Box>
-                <Button leftSection={<IconUserPlus size={18} />}>신규 회원 등록</Button>
+                <Button leftSection={<IconUserPlus size={18} />} onClick={handleNewMember}>신규 회원 등록</Button>
             </Group>
 
             {/* Controls */}
-            <Group mb="md">
+            <Group mb="md" align="end">
                 <TextInput
-                    placeholder="이름 또는 전화번호 검색"
+                    label="검색"
+                    placeholder="이름 또는 전화번호"
                     leftSection={<IconSearch size={16} />}
                     value={search}
                     onChange={(e) => setSearch(e.currentTarget.value)}
                     style={{ flex: 1, maxWidth: 300 }}
                 />
-                <Button variant="light" leftSection={<IconFilter size={16} />}>필터</Button>
+                <MultiSelect
+                    label="상태 필터"
+                    placeholder="상태 선택 (전체)"
+                    data={[
+                        { value: 'ACTIVE', label: '활동회원' },
+                        { value: 'DORMANT', label: '휴면회원' },
+                        { value: 'EXPIRED', label: '만료회원' },
+                        { value: 'PENDING', label: '대기회원' },
+                    ]}
+                    value={statusFilter}
+                    onChange={setStatusFilter}
+                    clearable
+                    leftSection={<IconFilter size={16} />}
+                    style={{ minWidth: 200 }}
+                />
             </Group>
 
             {/* Table */}
@@ -63,6 +113,7 @@ export default function MemberListPage() {
                     <Table.Thead bg="gray.0">
                         <Table.Tr>
                             <Table.Th>회원명</Table.Th>
+                            <Table.Th>성별</Table.Th>
                             <Table.Th>상태</Table.Th>
                             <Table.Th>연락처</Table.Th>
                             <Table.Th>보유 수강권</Table.Th>
@@ -71,7 +122,7 @@ export default function MemberListPage() {
                         </Table.Tr>
                     </Table.Thead>
                     <Table.Tbody>
-                        {filteredMembers.map((member) => {
+                        {filteredMembers.length > 0 ? filteredMembers.map((member) => {
                             // Find active ticket (simplified: first active)
                             const memberTicket = tickets.find(t => t.memberId === member.id && t.status === 'ACTIVE');
 
@@ -82,6 +133,9 @@ export default function MemberListPage() {
                                             <Avatar size="sm" radius="xl" color="indigo" name={member.name} />
                                             <Text size="sm" fw={500}>{member.name}</Text>
                                         </Group>
+                                    </Table.Td>
+                                    <Table.Td>
+                                        <Text size="sm">{member.gender === 'MALE' ? '남성' : '여성'}</Text>
                                     </Table.Td>
                                     <Table.Td>
                                         <Badge
@@ -100,7 +154,7 @@ export default function MemberListPage() {
                                         )}
                                     </Table.Td>
                                     <Table.Td>
-                                        {member.lastAttendanceAt ? dayjs(member.lastAttendanceAt).format('YYYY-MM-DD') : '-'}
+                                        {member.lastAttendanceAt ? dayjs(member.lastAttendanceAt).format('YY.MM.DD') : '-'}
                                     </Table.Td>
                                     <Table.Td onClick={(e) => e.stopPropagation()}>
                                         <Menu position="bottom-end" withinPortal>
@@ -108,23 +162,55 @@ export default function MemberListPage() {
                                                 <ActionIcon variant="subtle" color="gray"><IconDotsVertical size={16} /></ActionIcon>
                                             </Menu.Target>
                                             <Menu.Dropdown>
-                                                <Menu.Item leftSection={<IconMessage size={14} />}>문자 발송</Menu.Item>
-                                                <Menu.Item leftSection={<IconEdit size={14} />}>정보 수정</Menu.Item>
+                                                <Menu.Item
+                                                    leftSection={<IconDeviceMobileMessage size={14} />}
+                                                    onClick={() => handleSendAlimTalk(member)}
+                                                >
+                                                    알림톡 발송
+                                                </Menu.Item>
+                                                <Menu.Item
+                                                    leftSection={<IconEdit size={14} />}
+                                                    onClick={() => handleEditMember(member)}
+                                                >
+                                                    정보 수정
+                                                </Menu.Item>
                                             </Menu.Dropdown>
                                         </Menu>
                                     </Table.Td>
                                 </Table.Tr>
                             );
-                        })}
+                        }) : (
+                            <Table.Tr>
+                                <Table.Td colSpan={7}>
+                                    <Text ta="center" c="dimmed" py="xl">검색 결과가 없습니다.</Text>
+                                </Table.Td>
+                            </Table.Tr>
+                        )}
                     </Table.Tbody>
                 </Table>
             </Card>
+
+            {/* Member Form Modal (Register/Edit) */}
+            <MemberFormModal
+                opened={isFormOpen}
+                onClose={() => setIsFormOpen(false)}
+                member={editTarget}
+            />
+
+            {/* AlimTalk Modal */}
+            <AlimTalkModal
+                opened={isAlimTalkOpen}
+                onClose={() => setIsAlimTalkOpen(false)}
+                member={alimTalkTarget}
+            />
 
             {/* Member Detail Drawer */}
             <MemberDrawer
                 opened={drawerOpened}
                 onClose={closeDrawer}
                 member={selectedMember}
+                onEdit={() => selectedMember && handleEditMember(selectedMember)}
+                onSendAlimTalk={() => selectedMember && handleSendAlimTalk(selectedMember)}
             />
         </Container>
     );
@@ -132,13 +218,44 @@ export default function MemberListPage() {
 
 // --- Drawer Component ---
 
-function MemberDrawer({ opened, onClose, member }: { opened: boolean, onClose: () => void, member: Member | null }) {
-    const { tickets, logs } = useMembers(); // In real app, might fetch specific member data here
+function MemberDrawer({
+    opened,
+    onClose,
+    member,
+    onEdit,
+    onSendAlimTalk
+}: {
+    opened: boolean,
+    onClose: () => void,
+    member: Member | null,
+    onEdit: () => void,
+    onSendAlimTalk: () => void
+}) {
+    const { tickets, updateMember } = useMembers();
+
+    // Local state for pinned note editing
+    const [isEditingNote, setIsEditingNote] = useState(false);
+    const [noteValue, setNoteValue] = useState('');
+
+    // Reset note value when member changes
+    useMemo(() => {
+        if (member) setNoteValue(member.pinnedNote || '');
+        setIsEditingNote(false);
+    }, [member]);
 
     if (!member) return null;
 
     const memberTickets = tickets.filter(t => t.memberId === member.id);
-    const memberLogs = logs.filter(l => l.memberId === member.id); // Placeholder if we had logs
+
+    const handleSaveNote = () => {
+        updateMember(member.id, { pinnedNote: noteValue });
+        setIsEditingNote(false);
+        notifications.show({
+            title: '저장됨',
+            message: '특이사항이 업데이트되었습니다.',
+            color: 'green'
+        });
+    };
 
     return (
         <Drawer
@@ -157,26 +274,49 @@ function MemberDrawer({ opened, onClose, member }: { opened: boolean, onClose: (
                             <Box>
                                 <Text size="xl" fw={700}>{member.name}</Text>
                                 <Text c="dimmed" size="sm" mt={4}>{member.phone}</Text>
+                                <Text size="xs" c="dimmed">{member.gender === 'MALE' ? '남성' : '여성'} · {member.birthDate || '생일 미입력'}</Text>
                             </Box>
                             <Badge size="lg" color={member.status === 'ACTIVE' ? 'green' : 'gray'}>{member.status}</Badge>
                         </Group>
                         <Group mt="sm" gap="xs">
-                            <Button size="xs" variant="default" leftSection={<IconMessage size={14} />}>SMS</Button>
-                            <Button size="xs" variant="default" leftSection={<IconPhone size={14} />}>Call</Button>
+                            <Button size="xs" variant="default" leftSection={<IconDeviceMobileMessage size={14} />} onClick={onSendAlimTalk}>알림톡</Button>
+                            <Button size="xs" variant="default" leftSection={<IconEdit size={14} />} onClick={onEdit}>정보수정</Button>
                         </Group>
                     </Box>
                 </Group>
 
-                {/* Important Note (Pinned) */}
-                {member.pinnedNote && (
-                    <Card withBorder bg="red.0" radius="md">
-                        <Group gap="xs" mb="xs">
+                {/* Physical Peculiarities (Editable) */}
+                <Box>
+                    <Group justify="space-between" mb="xs">
+                        <Group gap="xs">
                             <IconNote size={16} color="red" />
                             <Text fw={700} size="sm" c="red.9">신체 특이사항 (중요)</Text>
                         </Group>
-                        <Text size="sm">{member.pinnedNote}</Text>
-                    </Card>
-                )}
+                        {!isEditingNote ? (
+                            <ActionIcon variant="subtle" size="xs" color="gray" onClick={() => setIsEditingNote(true)}>
+                                <IconEdit size={14} />
+                            </ActionIcon>
+                        ) : (
+                            <Group gap={4}>
+                                <Button size="compact-xs" variant="light" onClick={() => setIsEditingNote(false)}>취소</Button>
+                                <Button size="compact-xs" onClick={handleSaveNote}>저장</Button>
+                            </Group>
+                        )}
+                    </Group>
+
+                    {isEditingNote ? (
+                        <Textarea
+                            value={noteValue}
+                            onChange={(e) => setNoteValue(e.currentTarget.value)}
+                            autosize
+                            minRows={2}
+                        />
+                    ) : (
+                        <Card withBorder bg="red.0" radius="md" p="sm">
+                            <Text size="sm">{member.pinnedNote || "등록된 특이사항이 없습니다."}</Text>
+                        </Card>
+                    )}
+                </Box>
 
                 <Tabs defaultValue="tickets">
                     <Tabs.List grow>
@@ -210,8 +350,7 @@ function MemberDrawer({ opened, onClose, member }: { opened: boolean, onClose: (
                     </Tabs.Panel>
 
                     <Tabs.Panel value="logs" pt="md">
-                        <Text c="dimmed" size="sm" ta="center" py="xl">상담 기록이 없습니다.</Text>
-                        {/* Placeholder for now */}
+                        <ConsultationLogList memberId={member.id} />
                     </Tabs.Panel>
                 </Tabs>
             </Stack>
