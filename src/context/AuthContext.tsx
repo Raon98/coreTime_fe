@@ -8,18 +8,21 @@ export type UserRole = 'OWNER' | 'INSTRUCTOR' | null;
 interface User {
     id: string;
     name: string;
+    email?: string;
+    phone?: string;
     role: UserRole;
     organizationId?: string | null;
     status?: 'ACTIVE' | 'PENDING' | 'REJECTED';
+    signupToken?: string;
 }
 
 interface AuthContextType {
     user: User | null;
     login: (provider: 'kakao' | 'google') => void;
     logout: () => void;
-    selectIdentity: (role: UserRole) => void;
+    selectIdentity: (role: UserRole, profile: { name: string, email: string, phone: string, signupToken?: string }) => void;
     registerOwner: (data: any) => void;
-    registerInstructor: (code: string) => void;
+    registerInstructor: (code: string | null, centerId?: string) => void; // Modified to support request approval
     checkAuth: () => void;
 }
 
@@ -37,14 +40,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             setUser(JSON.parse(stored));
         } else {
             // DEV OVERRIDE
-            const devUser: User = {
-                id: 'dev_owner',
-                name: '개발자(원장)',
-                role: 'OWNER',
-                organizationId: 'org_dev',
-                status: 'ACTIVE'
-            };
-            setUser(devUser);
+            // const devUser: User = {
+            //     id: 'dev_owner',
+            //     name: '개발자(원장)',
+            //     role: 'OWNER',
+            //     organizationId: 'org_dev',
+            //     status: 'ACTIVE'
+            // };
+            // setUser(devUser);
         }
     }, []);
 
@@ -53,6 +56,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const mockUser: User = {
             id: 'user_123',
             name: '홍길동',
+            email: 'test@example.com',
             role: null, // No role yet
         };
         setUser(mockUser);
@@ -61,20 +65,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // If no role, go to identity selection
         // If role exists, go to dashboard
         if (!mockUser.role) {
-            router.push('/identity');
+            router.push(`/identity?name=${encodeURIComponent(mockUser.name)}&email=${encodeURIComponent(mockUser.email || '')}&signupToken=mock_signup_token`);
         } else {
             router.push('/');
         }
     };
 
-    const selectIdentity = (role: UserRole) => {
-        if (!user) return;
-        const updated = { ...user, role };
-        // Don't save yet? Or save as partial? 
-        // Spec says: "Account creation after social login -> identity selection"
-        // Let's assume we update the user state but they still need to complete registration
-        setUser(updated);
-        localStorage.setItem('coretime_user', JSON.stringify(updated));
+    const selectIdentity = (role: UserRole, profile: { name: string, email: string, phone: string, signupToken?: string }) => {
+        // If we are in the signup flow, user might be null or partial
+        const newUser: User = {
+            id: user?.id || 'temp_' + Date.now(), // specific ID generation usually happens on backend
+            role,
+            ...profile
+        };
+
+        setUser(newUser);
+        localStorage.setItem('coretime_user', JSON.stringify(newUser));
 
         if (role === 'OWNER') {
             router.push('/register/owner');
@@ -96,13 +102,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         router.push('/'); // Go to dashboard
     };
 
-    const registerInstructor = (code: string) => {
+    const registerInstructor = (code: string | null, centerId?: string) => {
         if (!user) return;
         // Simulate pending approval
         const updated: User = {
             ...user,
             role: 'INSTRUCTOR',
-            organizationId: 'org_pending',
+            organizationId: centerId || 'org_pending',
             status: 'PENDING'
         };
         setUser(updated);
