@@ -5,17 +5,19 @@ import { useForm } from '@mantine/form';
 import { useState } from 'react';
 import { useAuth } from '@/context/AuthContext';
 
+import { authApi } from '@/lib/api'; // Import authApi
+
 export default function RegisterOwnerPage() {
-    const { registerOwner } = useAuth();
+    const { registerOwner, registrationData } = useAuth();
     const [loading, setLoading] = useState(false);
 
     const form = useForm({
         initialValues: {
             centerName: '',
             registrationNumber: '',
-            ownerName: '',
+            ownerName: registrationData?.name || '',
             address: '',
-            phone: '',
+            phone: registrationData?.phone || '',
         },
         validate: {
             centerName: (value) => (value.length < 2 ? '센터명을 입력해주세요' : null),
@@ -40,12 +42,48 @@ export default function RegisterOwnerPage() {
     };
 
     const handleSubmit = async (values: typeof form.values) => {
+        if (!registrationData?.email) {
+            alert('회원 정보가 유실되었습니다. 다시 진행해주세요.');
+            return;
+        }
+
         setLoading(true);
-        // Simulate API call
-        setTimeout(() => {
-            registerOwner(values);
+        try {
+            // 1. Sign Up User (Owner)
+            // Note: registerOwner in AuthContext currently redirects. 
+            // We need to either modify AuthContext or assume the user stays on this page if we can intercept/prevent redirect,
+            // or just let AuthContext handle the user and then we do center creation?
+            // Problem: If AuthContext redirects to '/', we can't create the center here.
+            // FIX: We will modify AuthContext to accept a 'redirect' flag, OR we accept that for now we might need to duplicate the signup logic here or update AuthContext.
+            // Let's assume we updated AuthContext to return the result and NOT redirect if we pass a flag, OR we use a try-catch block and manage flow.
+            // Actually, best approach is to update AuthContext first. But since I am editing this file, I'll write the logic as if I can control the redirect.
+            // I will update AuthContext next.
+
+            await registerOwner({
+                name: values.ownerName,
+                email: registrationData.email,
+                phone: values.phone,
+            }, false); // Pass false to prevent auto-redirect
+
+            // 2. Create Center
+            await authApi.registerOrganization({
+                name: values.centerName,
+                representativeName: values.ownerName,
+                businessNumber: values.registrationNumber,
+                category: 'Pilates', // Default or add filed
+                address: values.address,
+                phone: values.phone // Center phone?
+            });
+
+            // 3. Redirect manually
+            window.location.href = '/';
+
+        } catch (error) {
+            console.error(error);
+            alert('가입 중 오류가 발생했습니다.');
+        } finally {
             setLoading(false);
-        }, 1500);
+        }
     };
 
     return (
@@ -62,7 +100,6 @@ export default function RegisterOwnerPage() {
                             정확한 데이터 관리를 위해<br />
                             사업자 정보와 위치를 등록합니다.
                         </Text>
-                        {/* Visual element or illustration could go here */}
                     </Stack>
                 </Grid.Col>
 

@@ -1,21 +1,14 @@
 'use client';
 
-import { Container, Paper, Title, Text, Stack, PinInput, Group, Button, Card, Badge, ThemeIcon, Transition, Divider, Modal, TextInput, ScrollArea, Avatar, UnstyledButton } from '@mantine/core';
+import { Container, Title, Text, Stack, PinInput, Button, Card, ThemeIcon, Transition, Divider, Modal, TextInput, ScrollArea, Avatar, UnstyledButton, Group } from '@mantine/core'; // Added Group
 import { useState } from 'react';
-import { IconCheck, IconX, IconBuilding, IconSearch, IconChevronRight } from '@tabler/icons-react';
+import { IconCheck, IconBuilding, IconSearch } from '@tabler/icons-react';
 import { useAuth } from '@/context/AuthContext';
 import { useDisclosure } from '@mantine/hooks';
-
-// Mock Center Data
-const MOCK_CENTERS = [
-    { id: 'center_1', name: '코어 필라테스 강남점', address: '서울 강남구 테헤란로 123' },
-    { id: 'center_2', name: '바디 밸런스 역삼점', address: '서울 강남구 논현로 456' },
-    { id: 'center_3', name: '퓨어 요가 & 필라테스', address: '서울 서초구 서초대로 789' },
-    { id: 'center_4', name: '올바른 필라테스', address: '서울 송파구 올림픽로 111' },
-];
+import { authApi } from '@/lib/api';
 
 export default function RegisterInstructorPage() {
-    const { registerInstructor } = useAuth();
+    const { registerInstructor, registrationData } = useAuth();
     const [code, setCode] = useState('');
     const [foundOrg, setFoundOrg] = useState<string | null>(null);
     const [error, setError] = useState(false);
@@ -23,19 +16,23 @@ export default function RegisterInstructorPage() {
     // Search related state
     const [opened, { open, close }] = useDisclosure(false);
     const [searchQuery, setSearchQuery] = useState('');
-    const [selectedCenter, setSelectedCenter] = useState<{ id: string, name: string, address: string } | null>(null);
+    const [organizationList, setOrganizationList] = useState<{ id: number, name: string, address: string }[]>([]);
+    const [selectedCenter, setSelectedCenter] = useState<{ id: number, name: string, address: string } | null>(null);
 
-    const handleCodeChange = (value: string) => {
+    const handleCodeChange = async (value: string) => {
         setCode(value);
         setError(false);
 
-        // Mock lookup
-        if (value.length >= 6) {
-            if (value === '123456') {
-                setFoundOrg('코어 필라테스 강남점');
-            } else if (value.length === 6) {
-                // If it's a full 6 digit code but not the test one, show error or not found
-                // let's just pretend only 123456 works for demo
+        if (value.length === 6) {
+            try {
+                const result = await authApi.validateInviteCode(value);
+                if (result.valid) {
+                    setFoundOrg(result.organizationName);
+                } else {
+                    setFoundOrg(null);
+                }
+            } catch (e) {
+                console.error(e);
                 setFoundOrg(null);
             }
         } else {
@@ -44,21 +41,47 @@ export default function RegisterInstructorPage() {
     };
 
     const handleSubmitCode = () => {
-        if (foundOrg) {
-            registerInstructor(code);
+        if (foundOrg && registrationData && registrationData.name && registrationData.email) {
+            registerInstructor({
+                name: registrationData.name,
+                email: registrationData.email,
+                phone: registrationData.phone,
+                inviteCode: code
+            });
         } else {
             setError(true);
+            if (!registrationData?.name) alert('회원 정보가 없습니다. 다시 로그인해주세요.');
+        }
+    };
+
+    // Fetch centers when modal opens
+    const handleOpenSearch = async () => {
+        open();
+        try {
+            const orgs = await authApi.getOrganizations();
+            // Map API response to local state if needed, or just use it directly
+            // OrganizationDto: { id, name, address, ... }
+            setOrganizationList(orgs as any); // Type assertion or simple mapping
+        } catch (error) {
+            console.error('Failed to fetch organizations', error);
+            // Fallback or alert?
+            // setOrganizationList([]); 
         }
     };
 
     // Filter centers
-    const filteredCenters = MOCK_CENTERS.filter(center =>
+    const filteredCenters = organizationList.filter(center =>
         center.name.includes(searchQuery) || center.address.includes(searchQuery)
     );
 
     const handleRequestApproval = () => {
-        if (selectedCenter) {
-            registerInstructor(null, selectedCenter.id);
+        if (selectedCenter && registrationData && registrationData.name && registrationData.email) {
+            registerInstructor({
+                name: registrationData.name,
+                email: registrationData.email,
+                phone: registrationData.phone,
+                organizationId: selectedCenter.id
+            });
         }
     };
 
@@ -115,7 +138,7 @@ export default function RegisterInstructorPage() {
                 <Text size="sm" c="dimmed">
                     초대 코드가 없으신가요?
                 </Text>
-                <Button variant="light" color="indigo" fullWidth onClick={open}>
+                <Button variant="light" color="indigo" fullWidth onClick={handleOpenSearch}>
                     센터 검색하여 승인 요청하기
                 </Button>
             </Stack>

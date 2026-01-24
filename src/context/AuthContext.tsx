@@ -2,133 +2,185 @@
 
 import { createContext, useContext, useState, ReactNode, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { authApi, clearTokens, OAuth2LoginCommand, SignUpCommand } from '@/lib/api';
 
 export type UserRole = 'OWNER' | 'INSTRUCTOR' | null;
 
 interface User {
-    id: string;
+    id: number;
     name: string;
-    email?: string;
+    email: string;
     phone?: string;
     role: UserRole;
-    organizationId?: string | null;
+    organizationId?: number | null;
     status?: 'ACTIVE' | 'PENDING' | 'REJECTED';
     signupToken?: string;
 }
 
 interface AuthContextType {
     user: User | null;
-    login: (provider: 'kakao' | 'google') => void;
+    isLoading: boolean;
+    login: (provider: 'kakao' | 'google') => Promise<void>;
     logout: () => void;
-    selectIdentity: (role: UserRole, profile: { name: string, email: string, phone: string, signupToken?: string }) => void;
-    registerOwner: (data: any) => void;
-    registerInstructor: (code: string | null, centerId?: string) => void; // Modified to support request approval
-    checkAuth: () => void;
+    signupToken: string | null;
+    registrationData: Partial<SignUpCommand> | null;
+    setRegistrationData: (data: Partial<SignUpCommand> | null) => void;
+    registerOwner: (data: Omit<SignUpCommand, 'signupToken' | 'identity'>, shouldRedirect?: boolean) => Promise<void>;
+    registerInstructor: (data: Omit<SignUpCommand, 'signupToken' | 'identity'>, shouldRedirect?: boolean) => Promise<void>;
+    checkAuth: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
     const [user, setUser] = useState<User | null>(null);
+    const [signupToken, setSignupToken] = useState<string | null>(null);
+    // Registration State
+    const [registrationData, setRegistrationData] = useState<Partial<SignUpCommand> | null>(null);
+    const [isLoading, setIsLoading] = useState(true);
     const router = useRouter();
 
-    // Load user from local storage on mount (simple persistence)
+    // Check auth on mount
     useEffect(() => {
-        // FOR DEV: Default to OWNER if no user found
-        const stored = localStorage.getItem('coretime_user');
-        if (stored) {
-            setUser(JSON.parse(stored));
-        } else {
-            // DEV OVERRIDE
-            // const devUser: User = {
-            //     id: 'dev_owner',
-            //     name: '개발자(원장)',
-            //     role: 'OWNER',
-            //     organizationId: 'org_dev',
-            //     status: 'ACTIVE'
-            // };
-            // setUser(devUser);
-        }
+        checkAuth();
     }, []);
 
-    const login = (provider: 'kakao' | 'google') => {
-        // Simulate social login
-        const mockUser: User = {
-            id: 'user_123',
-            name: '홍길동',
-            email: 'test@example.com',
-            role: null, // No role yet
-        };
-        setUser(mockUser);
-        localStorage.setItem('coretime_user', JSON.stringify(mockUser));
-
-        // If no role, go to identity selection
-        // If role exists, go to dashboard
-        if (!mockUser.role) {
-            router.push(`/identity?name=${encodeURIComponent(mockUser.name)}&email=${encodeURIComponent(mockUser.email || '')}&signupToken=mock_signup_token`);
-        } else {
-            router.push('/');
+    const checkAuth = async () => {
+        try {
+            const me = await authApi.getMe();
+            setUser({
+                id: me.id,
+                name: me.name,
+                email: me.email,
+                role: me.role === 'OWNER' ? 'OWNER' : (me.role === 'INSTRUCTOR' || me.role === 'STAFF' as any) ? 'INSTRUCTOR' : null,
+                status: 'ACTIVE' // Simplified, 'me' might need to return status
+            });
+        } catch (error) {
+            // failed to get me, clear tokens
+            // clearTokens(); // Only clear if 401? handled by interceptor
+            setUser(null);
+        } finally {
+            setIsLoading(false);
         }
     };
 
-    const selectIdentity = (role: UserRole, profile: { name: string, email: string, phone: string, signupToken?: string }) => {
-        // If we are in the signup flow, user might be null or partial
-        const newUser: User = {
-            id: user?.id || 'temp_' + Date.now(), // specific ID generation usually happens on backend
-            role,
-            ...profile
-        };
+    const login = async (provider: 'kakao' | 'google') => {
+        setIsLoading(true);
+        try {
+            // NOTE: In a real app, you would use the Provider SDK (e.g. window.Kakao.Auth.login) to get the providerId/email.
+            // Since we don't have the SDK setup here, we will simulate the *result* of that SDK call
+            // and then pass it to our backend.
 
-        setUser(newUser);
-        localStorage.setItem('coretime_user', JSON.stringify(newUser));
+            // SIMULATED PROVIDER RESPONSE
+            const mockProviderResponse: OAuth2LoginCommand = {
+                provider,
+                providerId: `mock_${provider}_${Date.now()}`,
+                email: `test_${Date.now()}@example.com`,
+                username: '테스트유저',
+                avatarUrl: 'https://via.placeholder.com/150'
+            };
 
-        if (role === 'OWNER') {
-            router.push('/register/owner');
-        } else {
-            router.push('/register/instructor');
+            const response = await authApi.login(mockProviderResponse);
+
+            if (response.isSignUpRequired && response.signupToken) {
+                // Case 1: New User -> Go to Sign Up
+                setSignupToken(response.signupToken);
+                // Redirect to identity selection or generic register page
+                // We pass the name/email via query params or context. Context is cleaner.
+                // But current pages expect query params? Let's check.
+                // For now, redirect to identity selection
+                router.push(`/identity?name=${encodeURIComponent(mockProviderResponse.username)}&email=${encodeURIComponent(mockProviderResponse.email)}`);
+            } else if (response.accessToken && response.refreshToken) {
+                // Case 2: Existing User -> Login Success
+                localStorage.setItem('accessToken', response.accessToken);
+                localStorage.setItem('refreshToken', response.refreshToken);
+
+                // Fetch full user info
+                await checkAuth();
+                router.push('/');
+            }
+        } catch (error) {
+            console.error('Login failed', error);
+            alert('로그인에 실패했습니다. (백엔드 연결 확인 필요)');
+        } finally {
+            setIsLoading(false);
         }
     };
 
-    const registerOwner = (data: any) => {
-        if (!user) return;
-        const updated: User = {
-            ...user,
-            role: 'OWNER',
-            organizationId: 'org_' + Math.floor(Math.random() * 1000),
-            status: 'ACTIVE'
-        };
-        setUser(updated);
-        localStorage.setItem('coretime_user', JSON.stringify(updated));
-        router.push('/'); // Go to dashboard
+    const registerOwner = async (data: Omit<SignUpCommand, 'signupToken' | 'identity'>, shouldRedirect: boolean = true) => {
+        if (!signupToken) {
+            alert('회원가입 토큰이 없습니다. 다시 로그인해주세요.');
+            router.push('/login');
+            return;
+        }
+
+        try {
+            const result = await authApi.signUp({
+                ...data,
+                signupToken,
+                identity: 'OWNER'
+            });
+
+            handleSignUpSuccess(result, shouldRedirect);
+        } catch (error) {
+            console.error('Owner registration failed', error);
+            throw error;
+        }
     };
 
-    const registerInstructor = (code: string | null, centerId?: string) => {
-        if (!user) return;
-        // Simulate pending approval
-        const updated: User = {
-            ...user,
-            role: 'INSTRUCTOR',
-            organizationId: centerId || 'org_pending',
-            status: 'PENDING'
-        };
-        setUser(updated);
-        localStorage.setItem('coretime_user', JSON.stringify(updated));
-        router.push('/register/pending');
+    const registerInstructor = async (data: Omit<SignUpCommand, 'signupToken' | 'identity'>, shouldRedirect: boolean = true) => {
+        if (!signupToken) {
+            alert('회원가입 토큰이 없습니다. 다시 로그인해주세요.');
+            router.push('/login');
+            return;
+        }
+
+        try {
+            const result = await authApi.signUp({
+                ...data,
+                signupToken,
+                identity: 'INSTRUCTOR' // Mapping to 'INSTRUCTOR' as per spec/frontend
+            });
+            handleSignUpSuccess(result, shouldRedirect);
+        } catch (error) {
+            console.error('Instructor registration failed', error);
+            throw error;
+        }
+    };
+
+    const handleSignUpSuccess = (result: { accessToken: string; refreshToken: string; status: string }, shouldRedirect: boolean = true) => {
+        localStorage.setItem('accessToken', result.accessToken);
+        localStorage.setItem('refreshToken', result.refreshToken);
+
+        if (shouldRedirect) {
+            if (result.status === 'PENDING_APPROVAL') {
+                router.push('/register/pending');
+            } else {
+                // Refresh me and go home
+                checkAuth().then(() => router.push('/'));
+            }
+        }
     };
 
     const logout = () => {
+        clearTokens();
         setUser(null);
-        localStorage.removeItem('coretime_user');
         router.push('/login');
     };
 
-    const checkAuth = () => {
-        // Helper to redirect if not logged in?
-        // For now just relying on state
-    };
-
     return (
-        <AuthContext.Provider value={{ user, login, logout, selectIdentity, registerOwner, registerInstructor, checkAuth }}>
+        <AuthContext.Provider value={{
+            user,
+            isLoading,
+            login,
+            logout,
+            signupToken,
+            registrationData,
+            setRegistrationData,
+            registerOwner,
+            registerInstructor,
+            checkAuth
+        }}>
             {children}
         </AuthContext.Provider>
     );

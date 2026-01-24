@@ -9,7 +9,7 @@ import { useSearchParams, useRouter } from 'next/navigation';
 function ProfileContent() {
     const searchParams = useSearchParams();
     const router = useRouter();
-    const { selectIdentity } = useAuth();
+    const { setRegistrationData } = useAuth();
 
     // Get collected data from URL
     const role = searchParams.get('role') as UserRole;
@@ -18,19 +18,16 @@ function ProfileContent() {
         name: '',
         email: '',
         phone: '',
-        signupToken: ''
     });
 
     useEffect(() => {
         const name = searchParams.get('name') || '';
         const email = searchParams.get('email') || '';
-        const signupToken = searchParams.get('signupToken') || '';
 
         setProfile(prev => ({
             ...prev,
             name,
             email,
-            signupToken
         }));
     }, [searchParams]);
 
@@ -40,7 +37,17 @@ function ProfileContent() {
 
     const handleComplete = () => {
         if (role) {
-            selectIdentity(role, profile);
+            setRegistrationData({
+                name: profile.name,
+                email: profile.email,
+                phone: profile.phone
+            });
+
+            if (role === 'OWNER') {
+                router.push('/register/owner');
+            } else if (role === 'INSTRUCTOR') {
+                router.push('/register/instructor');
+            }
         }
     };
 
