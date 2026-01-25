@@ -130,7 +130,8 @@ function LoginContent() {
                             bg="#FEE500"
                             c="#191919"
                             component="a"
-                            href={`http://localhost:8080/oauth2/authorization/kakao?centerId=owner&clientUrl=${process.env.NEXT_PUBLIC_CLIENT_URL}`}
+                            // href={`http://localhost:8080/oauth2/authorization/kakao?centerId=owner&clientUrl=${process.env.NEXT_PUBLIC_CLIENT_URL}`}
+                            href={`${process.env.NEXT_PUBLIC_API_URL}/oauth2/authorization/kakao?centerId=owner&clientUrl=${process.env.NEXT_PUBLIC_CLIENT_URL}`}
                             leftSection={<KakaoIcon style={{ width: 18, height: 18, position: 'relative', top: 1 }} />}
                             radius="md"
                             styles={{
