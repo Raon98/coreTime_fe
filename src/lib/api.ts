@@ -91,11 +91,28 @@ const api = axios.create({
 
 // --- Token Management ---
 
-// --- Token Management ---
-// We now rely on NextAuth for token storage/rotation.
+// Session cache to prevent infinite getSession() calls
+let sessionCache: { session: any; timestamp: number } | null = null;
+const SESSION_CACHE_TTL = 1000; // 1 second cache
+
+// Helper to get session with caching
+const getCachedSession = async () => {
+    const now = Date.now();
+
+    // Return cached session if still valid
+    if (sessionCache && (now - sessionCache.timestamp) < SESSION_CACHE_TTL) {
+        return sessionCache.session;
+    }
+
+    // Fetch fresh session
+    const session = await getSession();
+    sessionCache = { session, timestamp: now };
+    return session;
+};
+
 // Helper to get token for requests
 const getAccessToken = async () => {
-    const session = await getSession();
+    const session = await getCachedSession();
     return session?.accessToken;
 };
 
@@ -110,7 +127,7 @@ api.interceptors.request.use(
             return config;
         }
 
-        const session = await getSession();
+        const session = await getCachedSession();
 
         // Attach Access Token
         if (session?.accessToken) {

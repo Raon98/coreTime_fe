@@ -1,7 +1,7 @@
 
 'use client';
 
-import { createContext, useContext, useState, ReactNode, useEffect } from 'react';
+import { createContext, useContext, useState, ReactNode, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { authApi, SignUpCommand, RegisterOrganizationCommand, JoinOrganizationCommand } from '@/lib/api';
 import { notifications } from '@mantine/notifications';
@@ -44,10 +44,13 @@ function AuthContent({ children }: { children: ReactNode }) {
     const [registrationData, setRegistrationData] = useState<Partial<SignUpCommand> | null>(null);
     const router = useRouter();
 
+    // Track loaded session to prevent redundant API calls
+    const loadedSessionId = useRef<string | null>(null);
+
     const isLoading = status === 'loading';
 
-    // Load profile from API
-    const loadProfile = async () => {
+    // Internal: Load profile from API with session tracking
+    const loadProfileInternal = async (sessionId: string) => {
         try {
             const profile = await authApi.getMe();
             console.log('AuthContext: Loaded profile from API:', profile);
@@ -60,14 +63,26 @@ function AuthContent({ children }: { children: ReactNode }) {
                 organizationId: profile.organizationId,
                 status: 'ACTIVE',
             }));
+            loadedSessionId.current = sessionId;
         } catch (error) {
             console.error('AuthContext: Failed to load profile:', error);
+        }
+    };
+
+    // Public: Reload profile (for manual refresh)
+    const loadProfile = async () => {
+        if (session?.user) {
+            const sessionId = `${session.user.id}_${session.user.role}_${session.user.organizationId}`;
+            await loadProfileInternal(sessionId);
         }
     };
 
     // Sync Session to Local User State
     useEffect(() => {
         if (session?.user) {
+            // Create a unique session identifier
+            const sessionId = `${session.user.id}_${session.user.role}_${session.user.organizationId}`;
+
             // Handle Signup Token
             if (session.user.signupToken) {
                 console.log("AuthContext: Retrieved signupToken from session", session.user.signupToken);
@@ -87,11 +102,13 @@ function AuthContent({ children }: { children: ReactNode }) {
             });
 
             // Load complete profile from API if user has a role (fully authenticated)
-            if (session.user.role && session.user.role !== 'TEMPUSER') {
-                loadProfile();
+            // Only load if we haven't already loaded this exact session
+            if (session.user.role && session.user.role !== 'TEMPUSER' && loadedSessionId.current !== sessionId) {
+                loadProfileInternal(sessionId);
             }
         } else {
             setUser(null);
+            loadedSessionId.current = null;
             // Check session storage for signup token persistence during signup flow
             const storedToken = sessionStorage.getItem('signupToken');
             if (storedToken) {
