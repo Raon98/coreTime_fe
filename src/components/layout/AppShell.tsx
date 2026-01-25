@@ -20,6 +20,7 @@ import { BrandLogo } from '@/components/common/BrandLogo';
 import { useAuth, UserRole } from '@/context/AuthContext';
 import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
+import { authApi, OrganizationResult } from '@/lib/api'; // Added import
 
 // Navigation items based on role
 interface NavItem {
@@ -112,21 +113,61 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     const pathname = usePathname();
     const router = useRouter();
 
-    // Mock Branches
-    const [currentBranch, setCurrentBranch] = useState('강남점');
+    // State for Organizations
+    const [organizations, setOrganizations] = useState<OrganizationResult[]>([]);
+    const [currentBranch, setCurrentBranch] = useState<string>(''); // Name of current branch
     const [isSwitching, setIsSwitching] = useState(false);
-    const branches = ['강남점', '서울숲점', '역삼점'];
 
-    const handleBranchSwitch = (branch: string) => {
+    // Fetch My Organizations on mount
+    useEffect(() => {
+        const fetchOrgs = async () => {
+            try {
+                const orgs = await authApi.getMyOrganizations();
+                setOrganizations(orgs);
+                // Set default if exists and not set
+                // Note: Real implementation might persist 'lastSelectedBranchId' in localStorage
+                if (orgs.length > 0) {
+                    // If user has an assigned org in context, try to match it
+                    const currentOrg = orgs.find(o => o.id === user?.organizationId);
+                    if (currentOrg) {
+                        setCurrentBranch(currentOrg.name);
+                    } else {
+                        setCurrentBranch(orgs[0].name);
+                    }
+                }
+            } catch (error) {
+                console.error('Failed to fetch my organizations', error);
+            }
+        };
+        fetchOrgs();
+    }, [user?.organizationId]);
+
+    const handleBranchSwitch = (branchName: string) => {
         setIsSwitching(true);
-        // Simulate API call/Context update
+        // Simulate API call/Context update (Maybe call an API to switch 'session' org or just local state)
+        // Here we just update local state for UI demo
         setTimeout(() => {
-            setCurrentBranch(branch);
+            setCurrentBranch(branchName);
             setIsSwitching(false);
+            // Optionally reload page or re-fetch data based on new org context
         }, 800);
     };
 
     const handleRegisterBranch = () => {
+        // Direct redirect for Owner, bypassing Identity Check if already logged in
+        if (user) {
+            if (user.role === 'OWNER') {
+                router.push('/register/create-center');
+                return;
+            }
+            // If instructor wants to 'register' a branch? Usually they join one. 
+            // Let's assume they want to become an owner or join another. 
+            // For now, default to identity page or instructor invite page.
+            router.push('/register/instructor');
+            return;
+        }
+
+        // Fallback for non-logged in (unreachable here usually)
         modals.openConfirmModal({
             title: '새 지점 등록',
             children: (
@@ -192,7 +233,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                                             <Text size="10px" c="dimmed" fw={600} style={{ lineHeight: 1 }}>STUDIO</Text>
                                             <Group gap={4} align="center">
                                                 <Text size="sm" fw={700} c="dark.8" style={{ lineHeight: 1 }}>
-                                                    {`스튜디오웨이트 ${currentBranch}`}
+                                                    {currentBranch}
                                                 </Text>
                                                 <IconChevronDown size={12} color="gray" />
                                             </Group>
@@ -203,15 +244,15 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
                             <Menu.Dropdown>
                                 <Menu.Label>내 지점 목록</Menu.Label>
-                                {branches.map(branch => (
+                                {organizations.map(org => (
                                     <Menu.Item
-                                        key={branch}
+                                        key={org.id}
                                         leftSection={<IconBuildingStore size={14} />}
-                                        color={currentBranch === branch ? 'indigo' : undefined}
-                                        bg={currentBranch === branch ? 'indigo.0' : undefined}
-                                        onClick={() => handleBranchSwitch(branch)}
+                                        color={currentBranch === org.name ? 'indigo' : undefined}
+                                        bg={currentBranch === org.name ? 'indigo.0' : undefined}
+                                        onClick={() => handleBranchSwitch(org.name)}
                                     >
-                                        스튜디오웨이트 {branch}
+                                        {org.name}
                                     </Menu.Item>
                                 ))}
 

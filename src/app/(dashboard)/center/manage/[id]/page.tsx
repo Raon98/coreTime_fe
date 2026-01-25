@@ -59,7 +59,7 @@ export default function CenterManagePage({ params }: PageProps) {
                 } as OrganizationDto);
 
                 // Fetch full details from public list?
-                const allCenters = await authApi.getOrganizations();
+                const allCenters = await authApi.getOrganizations([centerId]);
                 const detail = allCenters.find(c => c.id === centerId);
                 if (detail) {
                     setCenter(detail);

@@ -1,17 +1,22 @@
 'use client';
 
-import { Container, Title, Text, Stack, PinInput, Button, Card, ThemeIcon, Transition, Divider, Modal, TextInput, ScrollArea, Avatar, UnstyledButton, Group } from '@mantine/core'; // Added Group
-import { useState } from 'react';
+import { Container, Title, Text, Stack, PinInput, Button, Card, ThemeIcon, Transition, Divider, Modal, TextInput, ScrollArea, Avatar, UnstyledButton, Group, Paper } from '@mantine/core'; // Added Paper
+import { useState, useEffect } from 'react';
 import { IconCheck, IconBuilding, IconSearch } from '@tabler/icons-react';
 import { useAuth } from '@/context/AuthContext';
 import { useDisclosure } from '@mantine/hooks';
 import { authApi } from '@/lib/api';
+import { notifications } from '@mantine/notifications';
+
 
 export default function RegisterInstructorPage() {
-    const { registerInstructor, registrationData } = useAuth();
+    const { joinInstructorOrganization } = useAuth();
     const [code, setCode] = useState('');
     const [foundOrg, setFoundOrg] = useState<string | null>(null);
     const [error, setError] = useState(false);
+
+    // Success Modal
+    const [successOpened, { open: openSuccess, close: closeSuccess }] = useDisclosure(false);
 
     // Search related state
     const [opened, { open, close }] = useDisclosure(false);
@@ -40,17 +45,36 @@ export default function RegisterInstructorPage() {
         }
     };
 
-    const handleSubmitCode = () => {
-        if (foundOrg && registrationData && registrationData.name && registrationData.email) {
-            registerInstructor({
-                name: registrationData.name,
-                email: registrationData.email,
-                phone: registrationData.phone,
-                inviteCode: code
-            });
+    const handleSubmitCode = async () => {
+        if (foundOrg) { // Name/Email check might be redundant if user is auth, but storedName is good backup
+            try {
+                await joinInstructorOrganization({
+                    inviteCode: code,
+                    identity: 'INSTRUCTOR'
+                });
+
+                notifications.show({
+                    title: '성공',
+                    message: '가입 신청이 완료되었습니다.',
+                    color: 'green'
+                });
+                // Open Success Modal instead of redirecting
+                openSuccess();
+
+
+            } catch (error: any) {
+                console.error(error);
+                const msg = error?.response?.data?.message || '가입 신청 중 오류가 발생했습니다.';
+
+                notifications.show({
+                    title: '신청 실패',
+                    message: msg,
+                    color: 'red'
+                });
+                setError(true);
+            }
         } else {
             setError(true);
-            if (!registrationData?.name) alert('회원 정보가 없습니다. 다시 로그인해주세요.');
         }
     };
 
@@ -58,14 +82,19 @@ export default function RegisterInstructorPage() {
     const handleOpenSearch = async () => {
         open();
         try {
+            // Pass undefined or leave empty if your API supports it (it does: ids?, config?)
             const orgs = await authApi.getOrganizations();
             // Map API response to local state if needed, or just use it directly
             // OrganizationDto: { id, name, address, ... }
             setOrganizationList(orgs as any); // Type assertion or simple mapping
         } catch (error) {
             console.error('Failed to fetch organizations', error);
-            // Fallback or alert?
-            // setOrganizationList([]); 
+            notifications.show({
+                title: '검색 불가',
+                message: '아직 센터 목록을 조회할 수 없는 상태입니다. 초대 코드를 사용해 주세요.',
+                color: 'orange'
+            });
+            setOrganizationList([]);
         }
     };
 
@@ -74,14 +103,34 @@ export default function RegisterInstructorPage() {
         center.name.includes(searchQuery) || center.address.includes(searchQuery)
     );
 
-    const handleRequestApproval = () => {
-        if (selectedCenter && registrationData && registrationData.name && registrationData.email) {
-            registerInstructor({
-                name: registrationData.name,
-                email: registrationData.email,
-                phone: registrationData.phone,
-                organizationId: selectedCenter.id
-            });
+    const handleRequestApproval = async () => {
+        if (selectedCenter) {
+            try {
+
+
+                await joinInstructorOrganization({
+                    organizationId: selectedCenter.id,
+                    identity: 'INSTRUCTOR'
+                });
+
+                notifications.show({
+                    title: '성공',
+                    message: '승인 요청이 완료되었습니다.',
+                    color: 'green'
+                });
+                // Open Success Modal instead of redirecting
+                openSuccess();
+
+            } catch (error: any) {
+                console.error(error);
+                const msg = error?.response?.data?.message || '승인 요청 중 오류가 발생했습니다.';
+
+                notifications.show({
+                    title: '요청 실패',
+                    message: msg,
+                    color: 'red'
+                });
+            }
         }
     };
 
@@ -194,6 +243,40 @@ export default function RegisterInstructorPage() {
                         onClick={handleRequestApproval}
                     >
                         승인 요청 보내기
+                    </Button>
+                </Stack>
+            </Modal>
+
+            {/* Pending Approval Success Modal */}
+            <Modal
+                opened={successOpened}
+                onClose={() => window.location.href = '/login'}
+                withCloseButton={false}
+                centered
+                size="md"
+                padding="xl"
+                radius="md"
+            >
+                <Stack align="center" gap="md">
+                    <ThemeIcon size={64} radius="full" color="green" variant="light">
+                        <IconCheck size={32} />
+                    </ThemeIcon>
+
+                    <Title order={3} ta="center">승인 요청 완료</Title>
+
+                    <Text c="dimmed" ta="center" size="sm">
+                        센터 가입 신청이 성공적으로 접수되었습니다.<br />
+                        관리자 승인 후 서비스를 이용하실 수 있습니다.
+                    </Text>
+
+                    <Button
+                        fullWidth
+                        size="md"
+                        mt="md"
+                        onClick={() => window.location.href = '/login'}
+                        color="green"
+                    >
+                        확인
                     </Button>
                 </Stack>
             </Modal>

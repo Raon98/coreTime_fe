@@ -25,7 +25,9 @@ export default function MyCentersPage() {
             if (me.organizationId) {
                 // 2. We have an ID. Try to get details from the list of centers (or specific endpoint if it existed)
                 // Assuming 3.2 Get Organizations returns all active centers.
-                const allCenters = await authApi.getOrganizations();
+                // 2. We have an ID. Try to get details from the list of centers
+                // Fetch specific center
+                const allCenters = await authApi.getOrganizations([me.organizationId]);
                 const myCenter = allCenters.find(c => c.id === me.organizationId);
 
                 if (myCenter) {
@@ -45,14 +47,13 @@ export default function MyCentersPage() {
             }
         } catch (error) {
             console.error('Failed to fetch centers', error);
-            // setCenters([]); // Fail silently or show error state
         } finally {
             setLoading(false);
         }
     };
 
     const handleCreateNew = () => {
-        router.push('/register/create-center'); // We need to create this route
+        router.push('/register/create-center');
     };
 
     const handleManage = (id: number) => {

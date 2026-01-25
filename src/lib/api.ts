@@ -1,4 +1,11 @@
-import axios, { AxiosError, InternalAxiosRequestConfig } from 'axios';
+import axios, { AxiosError, InternalAxiosRequestConfig as OriginalInternalAxiosRequestConfig, AxiosRequestConfig } from 'axios';
+import { getSession, signOut } from 'next-auth/react';
+import { notifications } from '@mantine/notifications';
+
+// Extend the internal config type
+interface InternalAxiosRequestConfig extends OriginalInternalAxiosRequestConfig {
+    _skipAuthRedirect?: boolean;
+}
 
 // --- Types ---
 
@@ -41,10 +48,14 @@ export interface SignUpCommand {
     signupToken: string;
     email: string;
     name: string;
-    phone?: string;
-    identity: 'OWNER' | 'INSTRUCTOR';
-    inviteCode?: string;
+    phone: string;
+    identity: 'OWNER' | 'INSTRUCTOR' | 'MEMBER';
+}
+
+export interface JoinOrganizationCommand {
     organizationId?: number;
+    inviteCode?: string;
+    identity: 'OWNER' | 'INSTRUCTOR' | 'MEMBER';
 }
 
 export interface SignUpResult {
@@ -69,8 +80,8 @@ export interface MeResult {
 
 // --- API Client ---
 
-const BASE_URL = 'https://core.api-talkterview.com/api/v1';
-// const BASE_URL = 'http://localhost:8080/api/v1';
+// const BASE_URL = 'https://core.api-talkterview.com/api/v1';
+const BASE_URL = 'http://localhost:8080/api/v1';
 
 const api = axios.create({
     baseURL: BASE_URL,
@@ -81,48 +92,30 @@ const api = axios.create({
 
 // --- Token Management ---
 
-const getAccessToken = () => localStorage.getItem('accessToken');
-const getRefreshToken = () => localStorage.getItem('refreshToken');
-const setTokens = (access: string, refresh: string) => {
-    localStorage.setItem('accessToken', access);
-    localStorage.setItem('refreshToken', refresh);
-};
-export const clearTokens = () => {
-    localStorage.removeItem('accessToken');
-    localStorage.removeItem('refreshToken');
+// --- Token Management ---
+// We now rely on NextAuth for token storage/rotation.
+// Helper to get token for requests
+const getAccessToken = async () => {
+    const session = await getSession();
+    return session?.accessToken;
 };
 
 // --- Interceptors ---
-
-// --- Interceptors ---
-
-let isRefreshing = false;
-let failedQueue: Array<{
-    resolve: (token: string) => void;
-    reject: (error: any) => void;
-}> = [];
-
-const processQueue = (error: any, token: string | null = null) => {
-    failedQueue.forEach((prom) => {
-        if (error) {
-            prom.reject(error);
-        } else if (token) {
-            prom.resolve(token);
-        }
-    });
-
-    failedQueue = [];
-};
 
 // Request: Attach Access Token
 api.interceptors.request.use(
-    (config: InternalAxiosRequestConfig) => {
-        const token = getAccessToken();
+    async (config: InternalAxiosRequestConfig) => {
+        // Skip token for auth endpoints if needed, but usually safe to attach
+        // Allow manual override
+        if (config.headers && config.headers.Authorization) {
+            return config;
+        }
+
+        const token = await getAccessToken();
         if (token) {
             if (!config.headers) {
                 config.headers = {} as any;
             }
-            // console.log('[API] Attaching Token:', token.substring(0, 10) + '...');
             config.headers.Authorization = `Bearer ${token}`;
         }
         return config;
@@ -130,87 +123,45 @@ api.interceptors.request.use(
     (error) => Promise.reject(error)
 );
 
-// Response: Handle 401 & 403 & Refresh
+// Response: Handle 401 & 403
 api.interceptors.response.use(
     (response) => response,
     async (error: AxiosError) => {
-        const originalRequest = error.config as InternalAxiosRequestConfig & { _retry?: boolean };
-
-        // 1. Handle 403 Forbidden -> Immediate Logout
+        // 1. Handle 403 Forbidden -> Access Denied
         if (error.response?.status === 403) {
-            clearTokens();
-            window.location.href = '/login';
+            // Show notification before redirecting
+            if (typeof window !== 'undefined') {
+                notifications.show({
+                    title: '접근 권한 없음',
+                    message: '해당 기능에 접근할 권한이 없습니다. 다시 로그인해 주세요.',
+                    color: 'red',
+                    autoClose: 3000
+                });
+
+                // Optional: Delay slightly to let user see message, or just redirect
+                // Await signOut to ensure it clears state
+                if (!window.location.pathname.startsWith('/login')) {
+                    setTimeout(() => {
+                        signOut({ callbackUrl: '/login' });
+                    }, 1500);
+                }
+            }
             return Promise.reject(error);
         }
 
-        // 2. Handle 401 Unauthorized -> Token Refresh
-        if (error.response?.status === 401 && !originalRequest._retry) {
-            if (isRefreshing) {
-                return new Promise(function (resolve, reject) {
-                    failedQueue.push({ resolve, reject });
-                })
-                    .then((token) => {
-                        if (originalRequest.headers) {
-                            originalRequest.headers.Authorization = `Bearer ${token}`;
-                        }
-                        return api(originalRequest);
-                    })
-                    .catch((err) => {
-                        return Promise.reject(err);
-                    });
+        // 2. Handle 401 Unauthorized -> Session Invalid
+        // Try to refresh token if we have a refresh token
+        if (error.response?.status === 401) {
+            const config = error.config as InternalAxiosRequestConfig;
+
+            // Skip if this request specifically opted out
+            if (config && config._skipAuthRedirect) {
+                return Promise.reject(error);
             }
 
-            originalRequest._retry = true;
-            isRefreshing = true;
-
-            const refreshToken = getRefreshToken();
-            const accessToken = getAccessToken(); // Some backends might need old access token
-
-            if (refreshToken) {
-                try {
-                    // Call Reissue Endpoint
-                    const { data } = await axios.post<ApiResponse<ReissueResult>>(`${BASE_URL}/auth/reissue`, {
-                        accessToken: accessToken || '', // Send current (expired) access token if available
-                        refreshToken,
-                    });
-
-                    // Check success based on ApiResponse wrapper
-                    // Adapting to user's provided structure which might wrap data
-                    const newTokens = data.data || data;
-                    // @ts-ignore
-                    const finalAccessToken = newTokens.accessToken;
-                    // @ts-ignore
-                    const finalRefreshToken = newTokens.refreshToken;
-
-                    if (!finalAccessToken) {
-                        throw new Error('No access token returned');
-                    }
-
-                    // Save new tokens
-                    setTokens(finalAccessToken, finalRefreshToken);
-
-                    // Process Queue
-                    processQueue(null, finalAccessToken);
-
-                    // Retry original request
-                    if (originalRequest.headers) {
-                        originalRequest.headers.Authorization = `Bearer ${finalAccessToken}`;
-                    }
-                    return api(originalRequest);
-                } catch (refreshError) {
-                    processQueue(refreshError, null);
-                    // Refresh failed - Logout
-                    clearTokens();
-                    window.location.href = '/login';
-                    return Promise.reject(refreshError);
-                } finally {
-                    isRefreshing = false;
-                }
-            } else {
-                // No tokens to refresh
-                clearTokens();
-                window.location.href = '/login';
-                return Promise.reject(error);
+            console.error("401 Unauthorized: Session may have expired.");
+            if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/login')) {
+                await signOut({ callbackUrl: '/login' });
             }
         }
 
@@ -218,23 +169,30 @@ api.interceptors.response.use(
     }
 );
 
+export interface RegisterOrganizationResult {
+    organizationId: number;
+}
+
 export interface RegisterOrganizationCommand {
-    name: string;
+    organizationName: string;
     representativeName: string;
     businessNumber: string;
     category: string;
     address: string;
-    phone: string;
+    organizationPhone: string;
 }
 
-export interface OrganizationDto {
+export interface OrganizationResult {
     id: number;
     name: string;
     address: string;
     phone?: string;
     representativeName?: string;
-    status?: 'ACTIVE' | 'PENDING' | 'REJECTED';
+    status: 'ACTIVE' | 'PENDING' | 'PENDING_APPROVAL' | 'REJECTED';
 }
+
+// Keeping OrganizationDto alias if needed for backward compat, or just use OrganizationResult
+export type OrganizationDto = OrganizationResult;
 
 export interface InviteCodeResult {
     code: string;
@@ -264,8 +222,8 @@ export const authApi = {
         const response = await api.post<ApiResponse<SignUpResult>>('/auth/signup', command);
         return response.data.data;
     },
-    getMe: async () => {
-        const response = await api.get<ApiResponse<MeResult>>('/auth/me');
+    getMe: async (config?: AxiosRequestConfig & { _skipAuthRedirect?: boolean }) => {
+        const response = await api.get<ApiResponse<MeResult>>('/auth/me', config);
         return response.data.data; // Unwrapping data
     },
     logout: async () => {
@@ -273,6 +231,12 @@ export const authApi = {
     },
     reissue: async (command: { accessToken: string; refreshToken: string }) => {
         const response = await api.post<ApiResponse<ReissueResult>>('/auth/reissue', command);
+        return response.data.data;
+    },
+
+    // 1.1 Memberships (Join)
+    joinOrganization: async (command: JoinOrganizationCommand) => {
+        const response = await api.post<ApiResponse<any>>('/memberships', command);
         return response.data.data;
     },
 
@@ -285,13 +249,27 @@ export const authApi = {
     },
 
     // 3. Center Management (Owner)
-    registerOrganization: async (command: RegisterOrganizationCommand) => {
-        const response = await api.post<ApiResponse<OrganizationDto>>('/management/organizations', command);
+    registerOrganization: async (command: RegisterOrganizationCommand, config?: AxiosRequestConfig) => {
+        const response = await api.post<ApiResponse<RegisterOrganizationResult>>('/management/organizations', command, config);
         return response.data.data;
     },
-    getOrganizations: async () => {
-        // 3.2 Get All Centers (Active)
-        const response = await api.get<ApiResponse<OrganizationDto[]>>('/management/organizations');
+    // 3.3 Get Single (Public/Protected?)
+    getOrganization: async (organizationId: number | string, config?: AxiosRequestConfig) => {
+        const response = await api.get<ApiResponse<OrganizationResult>>(`/management/organizations/${organizationId}`, config);
+        return response.data.data;
+    },
+    // 3.1 Get Organizations (All or Specific List)
+    getOrganizations: async (ids?: (number | string)[], config?: AxiosRequestConfig & { _skipAuthRedirect?: boolean }) => {
+        let url = '/management/organizations';
+        if (ids && ids.length > 0) {
+            url += `/${ids.join(',')}`;
+        }
+        const response = await api.get<ApiResponse<OrganizationResult[]>>(url, config);
+        return response.data.data;
+    },
+    // 3.2 Get My Organizations (for switcher)
+    getMyOrganizations: async () => {
+        const response = await api.get<ApiResponse<OrganizationResult[]>>('/management/organizations/my');
         return response.data.data;
     },
 

@@ -3,15 +3,81 @@
 import { Container, Title, Text, SimpleGrid, Paper, Stack, ThemeIcon } from '@mantine/core';
 import { IconBuildingStore, IconUserScreen } from '@tabler/icons-react';
 import { Suspense } from 'react';
-import { UserRole } from '@/context/AuthContext';
+import { UserRole, useAuth } from '@/context/AuthContext';
 import { useSearchParams, useRouter } from 'next/navigation';
+import { authApi } from '@/lib/api';
+import { notifications } from '@mantine/notifications';
+import { signIn, useSession } from 'next-auth/react';
+import { useEffect } from 'react';
 
 function IdentityContent() {
     const searchParams = useSearchParams();
     const router = useRouter();
+    const { user } = useAuth();
 
-    const handleRoleSelect = (role: UserRole) => {
-        // Construct new URL parameters
+    // 1. Handle Onboarding Token Injection (from Backend Redirect)
+    useEffect(() => {
+        const state = searchParams.get('state');
+        const accessToken = searchParams.get('accessToken');
+
+        if (state === 'onboarding' && accessToken) {
+            console.log("IdentityPage: Detected Onboarding State. Injecting Token...");
+            // Manually sign in to establish session with the temp token
+            // This allows subsequent API calls (like getMe or register) to work
+            signIn('credentials', {
+                accessToken: accessToken,
+                refreshToken: searchParams.get('refreshToken') || '', // Pass refreshToken if available
+                redirect: false,
+                id: 'temp-user', // Dummy ID, will be overwritten by getMe or subsequent logic
+                role: 'TEMPUSER' // As per backend logic
+            }).then((res) => {
+                if (res?.error) {
+                    console.error("IdentityPage: Failed to inject token", res.error);
+                    notifications.show({ title: '오류', message: '인증 토큰 설정에 실패했습니다.', color: 'red' });
+                } else {
+                    console.log("IdentityPage: Token Injected Successfully");
+                    // Optional: Reload or just let AuthContext sync
+                }
+            });
+        }
+
+        // 2. Handle Signup Token (if present, just logging for debug)
+        const signupToken = searchParams.get('signupToken');
+        if (signupToken) {
+            sessionStorage.setItem('signupToken', signupToken);
+        }
+    }, [searchParams]);
+
+
+    const { data: session } = useSession(); // Access session for token check
+
+    const handleRoleSelect = async (role: UserRole) => {
+        if (session?.accessToken) {
+            sessionStorage.setItem('pendingRole', role || '');
+            if (role === 'OWNER') {
+                router.push('/register/owner');
+            } else if (role === 'INSTRUCTOR') {
+                router.push('/register/instructor');
+            }
+            return;
+        }
+
+        // Fallback: Check for onboarding state (e.g. if session is lagging but token was injected)
+        const state = searchParams.get('state');
+        if (state === 'onboarding') {
+            sessionStorage.setItem('pendingRole', role || '');
+            if (role === 'OWNER') {
+                router.push('/register/owner');
+            } else if (role === 'INSTRUCTOR') {
+                router.push('/register/instructor');
+            }
+            return;
+        }
+
+        // Default: Proceed to Profile (User not found or not authenticated)
+        console.log("Identity Check: Token not found, proceeding to profile.");
+
+        // Construct new URL parameters for Profile Page
         const params = new URLSearchParams(searchParams.toString());
         if (role) {
             params.set('role', role);

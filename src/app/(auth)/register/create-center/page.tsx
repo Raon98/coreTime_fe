@@ -1,11 +1,12 @@
 'use client';
 
-import { Container, Title, Text, Stack, TextInput, Button, Paper, Grid, LoadingOverlay } from '@mantine/core';
+import { Container, Title, Text, Stack, TextInput, Button, Paper, Grid, LoadingOverlay, Select } from '@mantine/core';
 import { useForm } from '@mantine/form';
 import { useState } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { authApi } from '@/lib/api';
 import { useRouter } from 'next/navigation';
+import { notifications } from '@mantine/notifications';
 
 export default function CreateCenterPage() {
     const { user } = useAuth(); // User is already logged in
@@ -19,6 +20,7 @@ export default function CreateCenterPage() {
             ownerName: user?.name || '',
             address: '',
             phone: user?.phone || '',
+            category: '필라테스',
         },
         validate: {
             centerName: (value) => (value.length < 2 ? '센터명을 입력해주세요' : null),
@@ -42,18 +44,23 @@ export default function CreateCenterPage() {
         try {
             // Create Center
             await authApi.registerOrganization({
-                name: values.centerName,
+                organizationName: values.centerName,
                 representativeName: values.ownerName,
                 businessNumber: values.registrationNumber,
-                category: 'Pilates',
+                category: values.category,
                 address: values.address,
-                phone: values.phone
+                organizationPhone: values.phone
             });
-            // Success -> Go to Center List
-            router.push('/center');
+            // Success -> Go to Center List or Dashboard
+            // Ideally refetch organizations or switch context
+            router.push('/');
         } catch (error) {
             console.error(error);
-            alert('센터 등록 중 오류가 발생했습니다.');
+            notifications.show({
+                title: '오류',
+                message: '센터 등록 중 오류가 발생했습니다.',
+                color: 'red'
+            });
         } finally {
             setLoading(false);
         }
@@ -76,6 +83,20 @@ export default function CreateCenterPage() {
                         <LoadingOverlay visible={loading} overlayProps={{ radius: "sm", blur: 2 }} />
                         <form onSubmit={form.onSubmit(handleSubmit)}>
                             <Stack gap="md">
+                                <Select
+                                    label="업종 선택"
+                                    placeholder="업종을 선택해주세요"
+                                    data={[
+                                        { value: '필라테스', label: '필라테스' },
+                                        { value: '헬스', label: '헬스' },
+                                        { value: 'PT', label: 'PT' },
+                                        { value: '요가', label: '요가' },
+                                        { value: '골프', label: '골프' },
+                                        { value: '기타', label: '기타' },
+                                    ]}
+                                    required
+                                    {...form.getInputProps('category')}
+                                />
                                 <TextInput label="센터명" placeholder="예: 스튜디오웨이트 2호점" required {...form.getInputProps('centerName')} />
                                 <TextInput label="사업자 번호" placeholder="000-00-00000" required maxLength={12} {...form.getInputProps('registrationNumber')} onChange={handleRegistrationNumberChange} />
                                 <TextInput label="대표자 성함" placeholder="홍길동" required {...form.getInputProps('ownerName')} />

@@ -9,7 +9,7 @@ import { useSearchParams, useRouter } from 'next/navigation';
 function ProfileContent() {
     const searchParams = useSearchParams();
     const router = useRouter();
-    const { setRegistrationData } = useAuth();
+    const useAuthContext = useAuth();
 
     // Get collected data from URL
     const role = searchParams.get('role') as UserRole;
@@ -23,6 +23,12 @@ function ProfileContent() {
     useEffect(() => {
         const name = searchParams.get('name') || '';
         const email = searchParams.get('email') || '';
+        const token = searchParams.get('signupToken');
+
+        if (token) {
+            console.log("ProfilePage: Captured signupToken from URL", token);
+            sessionStorage.setItem('signupToken', token);
+        }
 
         setProfile(prev => ({
             ...prev,
@@ -35,19 +41,54 @@ function ProfileContent() {
         router.back();
     };
 
-    const handleComplete = () => {
-        if (role) {
-            setRegistrationData({
-                name: profile.name,
-                email: profile.email,
-                phone: profile.phone
-            });
+    const handleComplete = async () => {
+        if (!isProfileValid || !role) return;
 
+        try {
+            // 1. Store extra data needed for next step (Membership)
+            sessionStorage.setItem('pendingRole', role);
+            sessionStorage.setItem('pendingPhone', profile.phone);
+            sessionStorage.setItem('pendingName', profile.name); // Maybe needed
+
+            // 2. Perform Account Registration (SignUp)
+            // Note: signupToken is already in AuthContext state or sessionStorage
+            const token = searchParams.get('signupToken');
+            if (token) {
+                await useAuthContext.signUp({
+                    name: profile.name,
+                    email: profile.email,
+                    phone: profile.phone,
+                    identity: role as 'OWNER' | 'INSTRUCTOR' | 'MEMBER',
+                    signupToken: token
+                });
+            } else {
+                // Fallback to context token logic if needed, but let's assume we pass it explicitly or it's handled by context
+                // AuthContext's signUp needs the token in the command
+                // Let's get it from session storage if not in URL
+                const storedToken = sessionStorage.getItem('signupToken');
+                if (!storedToken) {
+                    alert('Session expired. Please start again.');
+                    return;
+                }
+                await useAuthContext.signUp({
+                    name: profile.name,
+                    email: profile.email,
+                    phone: profile.phone,
+                    identity: role as 'OWNER' | 'INSTRUCTOR' | 'MEMBER',
+                    signupToken: storedToken
+                });
+            }
+
+            // 3. Redirect to Membership Step
             if (role === 'OWNER') {
                 router.push('/register/owner');
             } else if (role === 'INSTRUCTOR') {
                 router.push('/register/instructor');
             }
+
+        } catch (error) {
+            console.error(error);
+            // Handle error (e.g. email duplicate)
         }
     };
 

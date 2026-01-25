@@ -1,23 +1,57 @@
 'use client';
 
-import { Container, Title, Text, Stack, TextInput, Button, Paper, Grid, LoadingOverlay } from '@mantine/core';
+import { Container, Title, Text, Stack, TextInput, Button, Paper, Grid, LoadingOverlay, SegmentedControl } from '@mantine/core';
 import { useForm } from '@mantine/form';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useAuth } from '@/context/AuthContext';
 
 import { authApi } from '@/lib/api'; // Import authApi
+import { Select, Modal, ThemeIcon, Center } from '@mantine/core'; // Added Modal, ThemeIcon, Center
+import { notifications } from '@mantine/notifications';
+import { useDisclosure } from '@mantine/hooks'; // Added useDisclosure
+import { IconCheck, IconX } from '@tabler/icons-react'; // Added IconCheck, IconX, IconAlertCircle
+
+const CENTER_CATEGORIES = [
+    { value: '필라테스', label: '필라테스' },
+    { value: '헬스', label: '헬스' },
+    { value: 'PT', label: 'PT' },
+    { value: '요가', label: '요가' },
+    { value: '골프', label: '골프' },
+    { value: '기타', label: '기타' },
+];
 
 export default function RegisterOwnerPage() {
-    const { registerOwner, registrationData } = useAuth();
+    const { createOwnerOrganization, registrationData, user } = useAuth();
     const [loading, setLoading] = useState(false);
+    const [storedPhone, setStoredPhone] = useState('');
+    const [storedName, setStoredName] = useState('');
+    const [createdOrgId, setCreatedOrgId] = useState<number | null>(null); // Store ID for redirect using modal
+    const [successOpened, { open: openSuccess, close: closeSuccess }] = useDisclosure(false);
+
+    // Error Modal State
+    const [errorOpened, { open: openError, close: closeError }] = useDisclosure(false);
+    const [errorMessage, setErrorMessage] = useState('');
+
+    useEffect(() => {
+        // Fallback: sessionStorage -> User Context -> Empty
+        const phone = sessionStorage.getItem('pendingPhone') || user?.phone || '';
+        const name = sessionStorage.getItem('pendingName') || user?.name || '';
+
+        setStoredPhone(phone);
+        setStoredName(name);
+
+        form.setFieldValue('ownerName', name);
+        form.setFieldValue('phone', phone);
+    }, [user]); // Add user dependency to react if it loads late
 
     const form = useForm({
         initialValues: {
             centerName: '',
             registrationNumber: '',
-            ownerName: registrationData?.name || '',
+            ownerName: '',
             address: '',
-            phone: registrationData?.phone || '',
+            phone: '',
+            category: CENTER_CATEGORIES[0].value,
         },
         validate: {
             centerName: (value) => (value.length < 2 ? '센터명을 입력해주세요' : null),
@@ -42,122 +76,191 @@ export default function RegisterOwnerPage() {
     };
 
     const handleSubmit = async (values: typeof form.values) => {
-        if (!registrationData?.email) {
-            alert('회원 정보가 유실되었습니다. 다시 진행해주세요.');
-            return;
-        }
-
         setLoading(true);
         try {
-            // 1. Sign Up User (Owner)
-            // Note: registerOwner in AuthContext currently redirects. 
-            // We need to either modify AuthContext or assume the user stays on this page if we can intercept/prevent redirect,
-            // or just let AuthContext handle the user and then we do center creation?
-            // Problem: If AuthContext redirects to '/', we can't create the center here.
-            // FIX: We will modify AuthContext to accept a 'redirect' flag, OR we accept that for now we might need to duplicate the signup logic here or update AuthContext.
-            // Let's assume we updated AuthContext to return the result and NOT redirect if we pass a flag, OR we use a try-catch block and manage flow.
-            // Actually, best approach is to update AuthContext first. But since I am editing this file, I'll write the logic as if I can control the redirect.
-            // I will update AuthContext next.
-
-            await registerOwner({
-                name: values.ownerName,
-                email: registrationData.email,
-                phone: values.phone,
-            }, false); // Pass false to prevent auto-redirect
-
-            // 2. Create Center
-            await authApi.registerOrganization({
-                name: values.centerName,
+            const orgId = await createOwnerOrganization({
+                organizationName: values.centerName,
                 representativeName: values.ownerName,
                 businessNumber: values.registrationNumber,
-                category: 'Pilates', // Default or add filed
+                category: values.category,
                 address: values.address,
-                phone: values.phone // Center phone?
+                organizationPhone: values.phone
             });
 
-            // 3. Redirect manually
-            window.location.href = '/';
+            setCreatedOrgId(orgId);
+            openSuccess();
 
-        } catch (error) {
+        } catch (error: any) {
             console.error(error);
-            alert('가입 중 오류가 발생했습니다.');
+            // Extract error message
+            const msg = error?.response?.data?.message || '센터 등록 중 오류가 발생했습니다.';
+            notifications.show({
+                title: '등록 실패',
+                message: msg,
+                color: 'red'
+            });
+            // setErrorMessage(msg);
+            // openError();
         } finally {
             setLoading(false);
         }
     };
 
+    const handleSuccessClose = () => {
+        window.location.href = '/login';
+    };
+
+    const handleErrorClose = () => {
+        closeError();
+    };
+
     return (
-        <Container size="lg" h="100vh" py="xl" style={{ display: 'flex', alignItems: 'center' }}>
-            <Grid w="100%" gutter="xl" align="center">
-                {/* Left Side: Guide */}
-                <Grid.Col span={{ base: 12, md: 5 }}>
-                    <Stack>
-                        <Title order={1}>
-                            스튜디오의 정보를<br />
-                            입력해 주세요
-                        </Title>
-                        <Text size="lg" c="dimmed">
-                            정확한 데이터 관리를 위해<br />
-                            사업자 정보와 위치를 등록합니다.
-                        </Text>
-                    </Stack>
-                </Grid.Col>
+        <>
+            <Container size="lg" h="100vh" py="xl" style={{ display: 'flex', alignItems: 'center' }}>
+                <Grid w="100%" gutter="xl" align="center">
+                    {/* Left Side: Guide */}
+                    <Grid.Col span={{ base: 12, md: 5 }}>
+                        <Stack>
+                            <Title order={1}>
+                                스튜디오의 정보를<br />
+                                입력해 주세요
+                            </Title>
+                            <Text size="lg" c="dimmed">
+                                정확한 데이터 관리를 위해<br />
+                                사업자 정보와 위치를 등록합니다.
+                            </Text>
+                        </Stack>
+                    </Grid.Col>
 
-                {/* Right Side: Form */}
-                <Grid.Col span={{ base: 12, md: 7 }}>
-                    <Paper p="xl" radius="md" withBorder shadow="sm" pos="relative">
-                        <LoadingOverlay visible={loading} overlayProps={{ radius: "sm", blur: 2 }} />
-                        <form onSubmit={form.onSubmit(handleSubmit)}>
-                            <Stack gap="md">
-                                <TextInput
-                                    label="센터명"
-                                    placeholder="예: 스튜디오웨이트 강남점"
-                                    required
-                                    {...form.getInputProps('centerName')}
-                                />
+                    {/* Right Side: Form */}
+                    <Grid.Col span={{ base: 12, md: 7 }}>
+                        <Paper p="xl" radius="md" withBorder shadow="sm" pos="relative">
+                            <LoadingOverlay visible={loading} overlayProps={{ radius: "sm", blur: 2 }} />
+                            <form onSubmit={form.onSubmit(handleSubmit)}>
+                                <Stack gap="md">
+                                    <Select
+                                        label="업종 선택"
+                                        placeholder="업종을 선택해주세요"
+                                        data={CENTER_CATEGORIES}
+                                        required
+                                        {...form.getInputProps('category')}
+                                    />
+                                    <TextInput
+                                        label="센터명"
+                                        placeholder="예: 스튜디오웨이트 강남점"
+                                        required
+                                        {...form.getInputProps('centerName')}
+                                    />
 
-                                <TextInput
-                                    label="사업자 번호"
-                                    placeholder="000-00-00000"
-                                    required
-                                    maxLength={12}
-                                    {...form.getInputProps('registrationNumber')}
-                                    onChange={handleRegistrationNumberChange}
-                                />
+                                    <TextInput
+                                        label="사업자 번호"
+                                        placeholder="000-00-00000"
+                                        required
+                                        maxLength={12}
+                                        {...form.getInputProps('registrationNumber')}
+                                        onChange={handleRegistrationNumberChange}
+                                    />
 
-                                <TextInput
-                                    label="대표자 성함"
-                                    placeholder="홍길동"
-                                    required
-                                    {...form.getInputProps('ownerName')}
-                                />
+                                    <TextInput
+                                        label="대표자 성함"
+                                        placeholder="홍길동"
+                                        required
+                                        {...form.getInputProps('ownerName')}
+                                    />
 
-                                <TextInput
-                                    label="주소"
-                                    placeholder="도로명 주소 입력"
-                                    description="상세 주소는 나중에 입력할 수 있습니다."
-                                    {...form.getInputProps('address')}
-                                />
+                                    <TextInput
+                                        label="주소"
+                                        placeholder="도로명 주소 입력"
+                                        description="상세 주소는 나중에 입력할 수 있습니다."
+                                        {...form.getInputProps('address')}
+                                    />
 
-                                <TextInput
-                                    label="연락처"
-                                    placeholder="02-1234-5678"
-                                    {...form.getInputProps('phone')}
-                                />
+                                    <TextInput
+                                        label="연락처"
+                                        placeholder="02-1234-5678"
+                                        {...form.getInputProps('phone')}
+                                    />
 
-                                <Button
-                                    type="submit"
-                                    size="md"
-                                    mt="md"
-                                    loading={loading}
-                                >
-                                    완료 및 대시보드로 이동
-                                </Button>
-                            </Stack>
-                        </form>
-                    </Paper>
-                </Grid.Col>
-            </Grid>
-        </Container>
+                                    <Button
+                                        type="submit"
+                                        size="md"
+                                        mt="md"
+                                        loading={loading}
+                                    >
+                                        등록 완료
+                                    </Button>
+                                </Stack>
+                            </form>
+                        </Paper>
+                    </Grid.Col>
+                </Grid>
+            </Container>
+
+            <Modal
+                opened={successOpened}
+                onClose={handleSuccessClose}
+                withCloseButton={false}
+                centered
+                size="md"
+                padding="xl"
+                radius="md"
+            >
+                <Stack align="center" gap="md">
+                    <ThemeIcon size={64} radius="full" color="green" variant="light">
+                        <IconCheck size={32} />
+                    </ThemeIcon>
+
+                    <Title order={3} ta="center">센터 등록 완료</Title>
+
+                    <Text c="dimmed" ta="center" size="sm">
+                        센터 등록 신청이 성공적으로 접수되었습니다.<br />
+                        관리자 승인 후 서비스를 이용하실 수 있습니다.<br />
+                    </Text>
+
+                    <Button
+                        fullWidth
+                        size="md"
+                        mt="md"
+                        onClick={handleSuccessClose}
+                        color="green"
+                    >
+                        확인
+                    </Button>
+                </Stack>
+            </Modal>
+
+            <Modal
+                opened={errorOpened}
+                onClose={handleErrorClose}
+                withCloseButton={false}
+                centered
+                size="md"
+                padding="xl"
+                radius="md"
+            >
+                <Stack align="center" gap="md">
+                    <ThemeIcon size={64} radius="full" color="red" variant="light">
+                        <IconX size={32} />
+                    </ThemeIcon>
+
+                    <Title order={3} ta="center">등록 실패</Title>
+
+                    <Text c="dimmed" ta="center" size="sm">
+                        {errorMessage}
+                    </Text>
+
+                    <Button
+                        fullWidth
+                        size="md"
+                        mt="md"
+                        onClick={handleErrorClose}
+                        color="red"
+                        variant="light"
+                    >
+                        다시 시도
+                    </Button>
+                </Stack>
+            </Modal>
+        </>
     );
 }

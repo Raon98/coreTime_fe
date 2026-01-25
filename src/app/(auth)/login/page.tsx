@@ -1,9 +1,14 @@
 'use client';
 
-import { Container, Paper, Title, Text, Button, Group, Stack, Box, Divider, Anchor, Modal } from '@mantine/core';
+import { Container, Paper, Title, Text, Button, Group, Stack, Box, Divider, Anchor, Modal, ScrollArea, Avatar, ThemeIcon } from '@mantine/core';
 import { useAuth } from '@/context/AuthContext';
 import { BrandLogo } from '@/components/common/BrandLogo';
 import { useDisclosure } from '@mantine/hooks';
+import { useSearchParams, useRouter } from 'next/navigation';
+import { useEffect, useState, Suspense } from 'react';
+import { authApi, OrganizationResult } from '@/lib/api';
+import { IconBuilding, IconCheck, IconPlus } from '@tabler/icons-react';
+import { signIn } from 'next-auth/react';
 
 // Custom Kakao Icon (SVG)
 function KakaoIcon(props: any) {
@@ -26,13 +31,74 @@ function GoogleIcon(props: any) {
     )
 }
 
-export default function LoginPage() {
+function LoginContent() {
     const { login } = useAuth();
+    const searchParams = useSearchParams();
+    const router = useRouter();
 
     // Help Modals
     const [termsOpened, { open: openTerms, close: closeTerms }] = useDisclosure(false);
     const [privacyOpened, { open: openPrivacy, close: closePrivacy }] = useDisclosure(false);
     const [helpOpened, { open: openHelp, close: closeHelp }] = useDisclosure(false);
+
+    // Pending Approval Modal
+    const [pendingOpened, { open: openPending, close: closePending }] = useDisclosure(false);
+    const [pendingOrgs, setPendingOrgs] = useState<OrganizationResult[]>([]);
+
+    useEffect(() => {
+        const state = searchParams.get('state');
+        const accessToken = searchParams.get('accessToken');
+        const orgIds = searchParams.getAll('organizationId'); // Handles multiple
+
+        // Handle Pending Token Injection
+        const handlePendingAuth = async () => {
+            const isPendingState = state === 'pending' || state === 'waiting_for_approval';
+
+            if (isPendingState && accessToken) {
+                console.log("LoginPage: Detected Pending State. Injecting Token...");
+                signIn('credentials', {
+                    accessToken: accessToken,
+                    refreshToken: searchParams.get('refreshToken') || '', // Pass refreshToken if available
+                    redirect: false,
+                    id: 'temp-user',
+                    role: 'TEMPUSER'
+                });
+            }
+
+            // After auth injection (or if not needed), fetch orgs
+            if (isPendingState && orgIds.length > 0) {
+                fetchPendingOrgs(orgIds);
+            }
+        };
+
+        const fetchPendingOrgs = async (ids: string[]) => {
+            try {
+                // Deduplicate IDs
+                const uniqueIds = Array.from(new Set(ids));
+
+                // Use the new batch API
+                const results = await authApi.getOrganizations(uniqueIds);
+                setPendingOrgs(results);
+                openPending();
+            } catch (error) {
+                console.error("Failed to fetch pending organizations", error);
+                openPending();
+            }
+        };
+
+        handlePendingAuth();
+    }, [searchParams]);
+
+    const handleRegisterNew = () => {
+        router.push('/identity');
+    };
+
+    const handlePendingClose = () => {
+        closePending();
+        // Clear query params so it doesn't show again on refresh or re-render
+        // unless the user triggers login again and gets redirected back.
+        router.replace('/login');
+    };
 
     return (
         <div style={{
@@ -56,7 +122,6 @@ export default function LoginPage() {
                     </Stack>
 
                     {/* Main Actions */}
-                    {/* Main Actions */}
                     <Stack w="100%" gap={12}>
                         {/* Kakao Button */}
                         <Button
@@ -65,7 +130,7 @@ export default function LoginPage() {
                             bg="#FEE500"
                             c="#191919"
                             component="a"
-                            href={`https://core.api-talkterview.com/oauth2/authorization/kakao?centerId=owner&clientUrl=${process.env.NEXT_PUBLIC_CLIENT_URL}`}
+                            href={`http://localhost:8080/oauth2/authorization/kakao?centerId=owner&clientUrl=${process.env.NEXT_PUBLIC_CLIENT_URL}`}
                             leftSection={<KakaoIcon style={{ width: 18, height: 18, position: 'relative', top: 1 }} />}
                             radius="md"
                             styles={{
@@ -84,7 +149,7 @@ export default function LoginPage() {
                             bg="#ffffff"
                             c="#3c4043"
                             component="a"
-                            href={`https://core.api-talkterview.com/oauth2/authorization/google?centerId=owner&clientUrl=${process.env.NEXT_PUBLIC_CLIENT_URL}`}
+                            href={`http://localhost:8080/oauth2/authorization/google?centerId=owner&clientUrl=${process.env.NEXT_PUBLIC_CLIENT_URL}`}
                             leftSection={<GoogleIcon style={{ width: 20, height: 20, position: 'relative', top: 0 }} />}
                             radius="md"
                             variant="default"
@@ -123,6 +188,84 @@ export default function LoginPage() {
             <Modal opened={helpOpened} onClose={closeHelp} title="문의하기">
                 <Text size="sm" c="dimmed">고객센터 연락처: support@coretime.com</Text>
             </Modal>
+
+            {/* Pending Approval Modal */}
+            <Modal
+                opened={pendingOpened}
+                onClose={handlePendingClose}
+                title="승인 대기 중"
+                centered
+                size="md"
+            >
+                <Stack gap="md">
+                    <Text size="sm" c="dimmed">
+                        다음 센터의 가입 승인을 기다리고 있습니다.<br />
+                        승인이 완료되면 알림을 보내드립니다.
+                    </Text>
+
+                    <ScrollArea h={pendingOrgs.length > 3 ? 200 : 'auto'}>
+                        <Stack gap="sm">
+                            {pendingOrgs.length > 0 ? pendingOrgs.map(org => (
+                                <Paper key={org.id} withBorder p="md" radius="md" bg="gray.0">
+                                    <Group>
+                                        <ThemeIcon color="orange" variant="light" size="lg" radius="xl">
+                                            <IconBuilding size={18} />
+                                        </ThemeIcon>
+                                        <div style={{ flex: 1 }}>
+                                            <Text size="sm" fw={600}>{org.name}</Text>
+                                            <Text size="xs" c="dimmed">{org.address}</Text>
+                                        </div>
+                                        {org.status === 'ACTIVE' ? (
+                                            <Text size="xs" fw={700} c="indigo">강사 승인 대기</Text>
+                                        ) : (
+                                            <Text size="xs" fw={700} c="orange">센터 승인 대기</Text>
+                                        )}
+                                    </Group>
+                                </Paper>
+                            )) : (
+                                // Fallback if details couldn't be fetched
+                                Array.from(new Set(searchParams.getAll('organizationId'))).map(id => (
+                                    <Paper key={id} withBorder p="md" radius="md" bg="gray.0">
+                                        <Group>
+                                            <ThemeIcon color="orange" variant="light" size="lg" radius="xl">
+                                                <IconBuilding size={18} />
+                                            </ThemeIcon>
+                                            <div style={{ flex: 1 }}>
+                                                <Text size="sm" fw={600}>센터 ID: {id}</Text>
+                                                <Text size="xs" c="dimmed">상세 정보를 불러올 수 없습니다.</Text>
+                                            </div>
+                                            <Text size="xs" fw={700} c="orange">승인 대기</Text>
+                                        </Group>
+                                    </Paper>
+                                ))
+                            )}
+                        </Stack>
+                    </ScrollArea>
+
+                    <Group justify="flex-end" mt="md">
+                        <Button
+                            variant="light"
+                            color="indigo"
+                            size="xs"
+                            leftSection={<IconPlus size={14} />}
+                            onClick={handleRegisterNew}
+                        >
+                            새로 등록하기
+                        </Button>
+                        <Button onClick={handlePendingClose}>확인</Button>
+                    </Group>
+                </Stack>
+            </Modal>
+
+
         </div>
+    );
+}
+
+export default function LoginPage() {
+    return (
+        <Suspense fallback={<div>Loading...</div>}>
+            <LoginContent />
+        </Suspense>
     );
 }

@@ -16,9 +16,11 @@ import {
 
 import { useAuth } from '@/context/AuthContext';
 import { LoadingOverlay, Button } from '@mantine/core';
+import { useSearchParams, useRouter } from 'next/navigation';
+import { Suspense } from 'react';
 
-export default function DashboardPage() {
-    const { user, isLoading } = useAuth();
+function DashboardContent() {
+    const { user, isLoading, logout } = useAuth();
     const [role, setRole] = useState<UserRole>('OWNER');
 
     useEffect(() => {
@@ -26,6 +28,13 @@ export default function DashboardPage() {
             setRole(user.role);
         }
     }, [user]);
+
+    // Redirect to login if no organization (incomplete registration)
+    useEffect(() => {
+        if (!isLoading && user && !user.organizationId) {
+            logout(); // This handles signOut and redirect to /login
+        }
+    }, [user, isLoading, logout]);
 
     // Load mock data
     const stats = getMockStats();
@@ -46,14 +55,10 @@ export default function DashboardPage() {
         );
     }
 
-    // Safety check if user is logged in but has no role (registration incomplete)
-    if (!user.role) {
-        // Should redirect or show something else
-        return (
-            <Container p="xl">
-                <Text>회원가입이 완료되지 않았습니다.</Text>
-            </Container>
-        )
+    // Safety check if user is logged in but has no role or organization
+    if (!user.organizationId || !user.role) {
+        // Will be handled by useEffect redirect, show blank or loading
+        return <LoadingOverlay visible />;
     }
 
     return (
@@ -108,5 +113,13 @@ export default function DashboardPage() {
 
             </Grid>
         </Container>
+    );
+}
+
+export default function DashboardPage() {
+    return (
+        <Suspense fallback={<LoadingOverlay visible />}>
+            <DashboardContent />
+        </Suspense>
     );
 }
