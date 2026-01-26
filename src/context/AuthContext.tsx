@@ -33,9 +33,18 @@ interface AuthContextType {
     joinInstructorOrganization: (data: JoinOrganizationCommand) => Promise<void>;
     checkAuth: () => Promise<void>;
     loadProfile: () => Promise<void>;
+    refreshUser: () => Promise<void>; // Manual refresh user data
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
+
+// Helper to strip "ROLE_" prefix if present, matching backend enums to frontend types
+const normalizeRole = (role: string | null | undefined): UserRole => {
+    if (!role) return null;
+    const normalized = role.replace('ROLE_', '');
+    // Validate if it matches known roles, theoretically. For now, trust the strip.
+    return normalized as UserRole;
+};
 
 function AuthContent({ children }: { children: ReactNode }) {
     const { data: session, status } = useSession();
@@ -59,7 +68,7 @@ function AuthContent({ children }: { children: ReactNode }) {
                 name: profile.name,
                 email: prev?.email || '',
                 phone: prev?.phone,
-                role: profile.identity as UserRole,
+                role: normalizeRole(profile.identity), // Normalize role from API
                 organizationId: profile.organizationId,
                 status: 'ACTIVE',
             }));
@@ -90,20 +99,27 @@ function AuthContent({ children }: { children: ReactNode }) {
                 sessionStorage.setItem('signupToken', session.user.signupToken);
             }
 
-            // Set initial user from session
+            // GUARD: If we have already loaded the full profile for this session,
+            // do NOT overwrite it with the potentially "lean" session object (which might lack role).
+            // This prevents "flickering" back to "Staff" (role: null) when session revalidates.
+            if (loadedSessionId.current === sessionId && user?.role) {
+                return;
+            }
+
+            // Set initial user from session (only if not already loaded fully)
             setUser({
                 id: session.user.id || '',
                 name: session.user.name || '',
                 email: session.user.email || '',
-                role: (session.user.role as UserRole) || null,
+                role: normalizeRole(session.user.role), // Normalize role from Session
                 organizationId: session.user.organizationId,
                 status: 'ACTIVE',
                 signupToken: session.user.signupToken
             });
 
-            // Load complete profile from API if user has a role (fully authenticated)
-            // Only load if we haven't already loaded this exact session
-            if (session.user.role && session.user.role !== 'TEMPUSER' && loadedSessionId.current !== sessionId) {
+            // Load complete profile from API if user is authenticated (has ID/Email)
+            // We fetch profile even if role is missing in session, to "self-heal" and get the latest role
+            if (session.user.id && loadedSessionId.current !== sessionId) {
                 loadProfileInternal(sessionId);
             }
         } else {
@@ -177,6 +193,12 @@ function AuthContent({ children }: { children: ReactNode }) {
         }
     };
 
+    // Public: Refresh user data (wrapper for loadProfile with better naming)
+    const refreshUser = async () => {
+        console.log('AuthContext: Manual refresh user requested');
+        await loadProfile();
+    };
+
     return (
         <AuthContext.Provider value={{
             user,
@@ -190,7 +212,8 @@ function AuthContent({ children }: { children: ReactNode }) {
             createOwnerOrganization,
             joinInstructorOrganization,
             checkAuth,
-            loadProfile
+            loadProfile,
+            refreshUser
         }}>
             {children}
         </AuthContext.Provider>

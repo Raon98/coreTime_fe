@@ -20,7 +20,8 @@ import { BrandLogo } from '@/components/common/BrandLogo';
 import { useAuth, UserRole } from '@/context/AuthContext';
 import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useState, useMemo, useRef } from 'react';
-import { authApi, OrganizationResult } from '@/lib/api'; // Added import
+import { authApi, useMyOrganizations, OrganizationResult } from '@/lib/api'; // Added useMyOrganizations
+import { AppShellSkeleton } from '@/components/layout/AppShellSkeleton';
 
 // Navigation items based on role
 interface NavItem {
@@ -107,65 +108,72 @@ const getNavItems = (role: UserRole): NavItem[] => {
     }
 };
 
+// ... imports ...
+
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
     const [opened, { toggle }] = useDisclosure();
-    const { user, logout } = useAuth();
+    const { user, logout, isLoading: isAuthLoading, refreshUser } = useAuth();
     const pathname = usePathname();
     const router = useRouter();
 
-    // State for Organizations
-    const [organizations, setOrganizations] = useState<OrganizationResult[]>([]);
+    // Fetch Organizations using React Query
+    // Use manual query hook or just rely on the one imported
+    // Since useMyOrganizations is a hook, we use it directly
+    const { data: organizations = [], isLoading: isOrgsLoading } = useMyOrganizations({
+        enabled: !!user, // Only fetch if user exists
+    });
+
     const [currentBranch, setCurrentBranch] = useState<string>(''); // Name of current branch
     const [isSwitching, setIsSwitching] = useState(false);
 
-    // Track if we've already fetched organizations to prevent infinite loops
-    const hasFetchedOrgs = useRef(false);
-
-    // Stabilize the organizationId to prevent unnecessary re-fetches
-    const stableOrgId = useMemo(() => user?.organizationId, [user?.organizationId]);
-
-    // Fetch My Organizations on mount (only once)
+    // Auto-refresh user data if missing
     useEffect(() => {
-        // Only fetch if we haven't fetched yet and user is available
-        if (!user || hasFetchedOrgs.current) {
-            return;
+        // If auth is not loading, but user is null, attempt to refresh
+        // This handles cases where the user data failed to load initially
+        if (!isAuthLoading && !user) {
+            console.log('AppShell: User is null but not loading, attempting refresh...');
+            refreshUser();
         }
+    }, [isAuthLoading, user, refreshUser]);
 
-        const fetchOrgs = async () => {
-            try {
-                const orgs = await authApi.getMyOrganizations();
-                setOrganizations(orgs);
-                hasFetchedOrgs.current = true; // Mark as fetched
-
-                // Set default if exists and not set
-                // Note: Real implementation might persist 'lastSelectedBranchId' in localStorage
-                if (orgs.length > 0) {
-                    // If user has an assigned org in context, try to match it
-                    const currentOrg = orgs.find(o => o.id === stableOrgId);
-                    if (currentOrg) {
-                        setCurrentBranch(currentOrg.name);
-                    } else {
-                        setCurrentBranch(orgs[0].name);
-                    }
-                }
-            } catch (error) {
-                console.error('Failed to fetch my organizations', error);
-                hasFetchedOrgs.current = false; // Allow retry on error
+    // Initialize Current Branch
+    useEffect(() => {
+        if (organizations.length > 0 && !currentBranch) {
+            // Logic to select default
+            if (user?.organizationId) {
+                const current = organizations.find(o => o.id === user.organizationId);
+                if (current) setCurrentBranch(current.name);
+                else setCurrentBranch(organizations[0].name);
+            } else {
+                setCurrentBranch(organizations[0].name);
             }
-        };
-        fetchOrgs();
-    }, [user, stableOrgId]); // Changed dependency to just user existence and stable org ID
+        }
+    }, [organizations, user, currentBranch]);
 
     const handleBranchSwitch = (branchName: string) => {
         setIsSwitching(true);
-        // Simulate API call/Context update (Maybe call an API to switch 'session' org or just local state)
-        // Here we just update local state for UI demo
+        // Simulate API call/Context update
         setTimeout(() => {
             setCurrentBranch(branchName);
             setIsSwitching(false);
-            // Optionally reload page or re-fetch data based on new org context
+            // In real app: update session or redirect
         }, 800);
     };
+
+    // Show Skeleton if Auth is loading or (optional) if user is null initially but loading
+    if (isAuthLoading) {
+        return <AppShellSkeleton />;
+    }
+
+    if (!user) {
+        return null; // Should redirect via middleware or AuthContext logic
+    }
+
+    // Critical Fix: If user exists but role is null (e.g. during initial hydration from partial session),
+    // show Skeleton until the full profile is loaded to avoid flickering to "Staff" view.
+    if (!user.role) {
+        return <AppShellSkeleton />;
+    }
 
     const handleRegisterBranch = () => {
         // Direct redirect for Owner, bypassing Identity Check if already logged in
@@ -224,94 +232,108 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                         </Group>
 
                         {/* Branch Switcher */}
-                        <Menu shadow="md" width={220} position="bottom-start" radius="md">
-                            <Menu.Target>
-                                <UnstyledButton
-                                    style={{
-                                        padding: '6px 10px',
-                                        borderRadius: '8px',
-                                        transition: 'background 0.2s',
-                                    }}
-                                    className="branch-switcher-btn"
-                                >
-                                    <Group gap={6}>
-                                        <Box style={{
-                                            width: 24, height: 24, borderRadius: '6px',
-                                            backgroundColor: 'var(--mantine-color-gray-2)',
-                                            color: 'var(--mantine-color-dark-6)',
-                                            display: 'flex', alignItems: 'center', justifyContent: 'center'
-                                        }}>
-                                            <IconBuildingStore size={14} stroke={2} />
-                                        </Box>
-                                        <Stack gap={0}>
-                                            <Text size="10px" c="dimmed" fw={600} style={{ lineHeight: 1 }}>STUDIO</Text>
-                                            <Group gap={4} align="center">
-                                                <Text size="sm" fw={700} c="dark.8" style={{ lineHeight: 1 }}>
-                                                    {currentBranch}
-                                                </Text>
-                                                <IconChevronDown size={12} color="gray" />
-                                            </Group>
-                                        </Stack>
-                                    </Group>
-                                </UnstyledButton>
-                            </Menu.Target>
-
-                            <Menu.Dropdown>
-                                <Menu.Label>내 지점 목록</Menu.Label>
-                                {organizations.map(org => (
-                                    <Menu.Item
-                                        key={org.id}
-                                        leftSection={<IconBuildingStore size={14} />}
-                                        color={currentBranch === org.name ? 'indigo' : undefined}
-                                        bg={currentBranch === org.name ? 'indigo.0' : undefined}
-                                        onClick={() => handleBranchSwitch(org.name)}
+                        {isOrgsLoading ? (
+                            <Skeleton height={36} width={180} radius="md" />
+                        ) : (
+                            <Menu shadow="md" width={220} position="bottom-start" radius="md">
+                                <Menu.Target>
+                                    <UnstyledButton
+                                        style={{
+                                            padding: '6px 10px',
+                                            borderRadius: '8px',
+                                            transition: 'background 0.2s',
+                                        }}
+                                        className="branch-switcher-btn"
                                     >
-                                        {org.name}
+                                        <Group gap={6}>
+                                            <Box style={{
+                                                width: 24, height: 24, borderRadius: '6px',
+                                                backgroundColor: 'var(--mantine-color-gray-2)',
+                                                color: 'var(--mantine-color-dark-6)',
+                                                display: 'flex', alignItems: 'center', justifyContent: 'center'
+                                            }}>
+                                                <IconBuildingStore size={14} stroke={2} />
+                                            </Box>
+                                            <Stack gap={0}>
+                                                <Text size="10px" c="dimmed" fw={600} style={{ lineHeight: 1 }}>STUDIO</Text>
+                                                <Group gap={4} align="center">
+                                                    <Text size="sm" fw={700} c="dark.8" style={{ lineHeight: 1 }}>
+                                                        {currentBranch || '지점 선택'}
+                                                    </Text>
+                                                    <IconChevronDown size={12} color="gray" />
+                                                </Group>
+                                            </Stack>
+                                        </Group>
+                                    </UnstyledButton>
+                                </Menu.Target>
+
+                                <Menu.Dropdown>
+                                    <Menu.Label>내 지점 목록</Menu.Label>
+                                    {organizations.map(org => (
+                                        <Menu.Item
+                                            key={org.id}
+                                            leftSection={<IconBuildingStore size={14} />}
+                                            color={currentBranch === org.name ? 'indigo' : undefined}
+                                            bg={currentBranch === org.name ? 'indigo.0' : undefined}
+                                            onClick={() => handleBranchSwitch(org.name)}
+                                        >
+                                            {org.name}
+                                        </Menu.Item>
+                                    ))}
+
+                                    <Menu.Divider />
+
+                                    <Menu.Item
+                                        leftSection={<IconPlus size={14} />}
+                                        onClick={handleRegisterBranch}
+                                    >
+                                        새 지점 등록하기
                                     </Menu.Item>
-                                ))}
-
-                                <Menu.Divider />
-
-                                <Menu.Item
-                                    leftSection={<IconPlus size={14} />}
-                                    onClick={handleRegisterBranch}
-                                >
-                                    새 지점 등록하기
-                                </Menu.Item>
-                            </Menu.Dropdown>
-                        </Menu>
+                                </Menu.Dropdown>
+                            </Menu>
+                        )}
                     </Group>
 
                     {/* Right Side Tools */}
                     <Group>
                         <IconBell size={22} stroke={1.5} color="var(--mantine-color-gray-6)" style={{ cursor: 'pointer' }} />
-                        <Menu shadow="md" width={200} trigger="hover" openDelay={100} closeDelay={400}>
-                            <Menu.Target>
-                                <UnstyledButton>
-                                    <Group gap={10}>
-                                        <Avatar radius="xl" size={36} name={user.name} />
-                                        <div style={{ flex: 1 }} className="hidden-mobile">
-                                            <Text size="sm" fw={600} style={{ lineHeight: 1.2 }}>{user.name}</Text>
-                                            <Text c="dimmed" size="11px" fw={500} style={{ lineHeight: 1 }}>
-                                                {user.role === 'SYSTEM_ADMIN' ? '시스템 관리자' : user.role === 'OWNER' ? '센터장' : user.role === 'INSTRUCTOR' ? '강사' : user.role === 'MEMBER' ? '회원' : '직원'}
-                                            </Text>
-                                        </div>
-                                    </Group>
-                                </UnstyledButton>
-                            </Menu.Target>
-                            <Menu.Dropdown>
-                                <Menu.Label>계정 설정</Menu.Label>
-                                <Menu.Item leftSection={<IconSettings size={14} />}>내 프로필 설정</Menu.Item>
-                                <Menu.Divider />
-                                <Menu.Item
-                                    color="red"
-                                    leftSection={<IconLogout size={14} />}
-                                    onClick={logout}
-                                >
-                                    로그아웃
-                                </Menu.Item>
-                            </Menu.Dropdown>
-                        </Menu>
+                        {isAuthLoading || !user ? (
+                            <Group gap={10}>
+                                <Skeleton height={36} circle />
+                                <div className="hidden-mobile">
+                                    <Skeleton height={14} width={80} mb={4} />
+                                    <Skeleton height={11} width={60} />
+                                </div>
+                            </Group>
+                        ) : (
+                            <Menu shadow="md" width={200} trigger="hover" openDelay={100} closeDelay={400}>
+                                <Menu.Target>
+                                    <UnstyledButton>
+                                        <Group gap={10}>
+                                            <Avatar radius="xl" size={36} name={user.name} />
+                                            <div style={{ flex: 1 }} className="hidden-mobile">
+                                                <Text size="sm" fw={600} style={{ lineHeight: 1.2 }}>{user.name}</Text>
+                                                <Text c="dimmed" size="11px" fw={500} style={{ lineHeight: 1 }}>
+                                                    {user.role === 'SYSTEM_ADMIN' ? '시스템 관리자' : user.role === 'OWNER' ? '센터장' : user.role === 'INSTRUCTOR' ? '강사' : user.role === 'MEMBER' ? '회원' : '직원'}
+                                                </Text>
+                                            </div>
+                                        </Group>
+                                    </UnstyledButton>
+                                </Menu.Target>
+                                <Menu.Dropdown>
+                                    <Menu.Label>계정 설정</Menu.Label>
+                                    <Menu.Item leftSection={<IconSettings size={14} />}>내 프로필 설정</Menu.Item>
+                                    <Menu.Divider />
+                                    <Menu.Item
+                                        color="red"
+                                        leftSection={<IconLogout size={14} />}
+                                        onClick={logout}
+                                    >
+                                        로그아웃
+                                    </Menu.Item>
+                                </Menu.Dropdown>
+                            </Menu>
+                        )}
                     </Group>
                 </Group>
             </AppShell.Header>

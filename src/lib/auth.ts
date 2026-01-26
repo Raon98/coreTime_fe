@@ -48,6 +48,9 @@ declare module "next-auth" {
 
 declare module "next-auth/jwt" {
     interface JWT {
+        id?: string;
+        name?: string;
+        email?: string;
         accessToken?: string;
         refreshToken?: string;
         role?: string;
@@ -143,6 +146,9 @@ export const authOptions: NextAuthOptions = {
                 console.log("[NextAuth] JWT Callback - Initial User:", JSON.stringify(user, null, 2));
                 const decoded = user.accessToken ? decodeJwt(user.accessToken) : null;
                 return {
+                    id: user.id,
+                    name: user.name,
+                    email: user.email,
                     accessToken: user.accessToken,
                     refreshToken: user.refreshToken,
                     role: user.role,
@@ -183,8 +189,11 @@ export const authOptions: NextAuthOptions = {
         },
         async session({ session, token }) {
             session.accessToken = token.accessToken;
-            session.refreshToken = token.refreshToken; // Expose refresh token
+            session.refreshToken = token.refreshToken;
             session.error = token.error;
+            session.user.id = token.id;
+            session.user.name = token.name;
+            session.user.email = token.email;
             session.user.role = token.role;
             session.user.organizationId = token.organizationId;
             session.user.isSignUpRequired = token.isSignUpRequired;

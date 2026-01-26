@@ -66,13 +66,8 @@ function DashboardContent() {
         return <LoadingOverlay visible />;
     }
 
-    if (isDashboardLoading) {
-        return (
-            <Container fluid p="md">
-                <DashboardSkeleton />
-            </Container>
-        );
-    }
+    // Instead of replacing entire screen, we render header and then skeletons
+    // if (isDashboardLoading) { return ... } // REMOVED
 
     return (
         <Container fluid p="md">
@@ -98,7 +93,11 @@ function DashboardContent() {
 
             {/* 1. Top Stats Grid */}
             <Box mb="lg">
-                {stats && <StatsGrid role={role} data={stats} />}
+                {isStatsLoading ? (
+                    <DashboardSkeleton type="stats" />
+                ) : (
+                    stats && <StatsGrid role={role} data={stats} />
+                )}
             </Box>
 
             {/* 2. Main Content Grid */}
@@ -107,19 +106,27 @@ function DashboardContent() {
                 {/* Left/Main Column */}
                 <Grid.Col span={{ base: 12, md: 8 }}>
                     {/* Activity Log takes the main stage now */}
-                    {activities && <RecentActivity activities={activities} />}
+                    {isActivityLoading ? (
+                        <DashboardSkeleton type="activity" />
+                    ) : (
+                        activities && <RecentActivity activities={activities} />
+                    )}
                 </Grid.Col>
 
                 {/* Right/Side Column */}
                 <Grid.Col span={{ base: 12, md: 4 }}>
                     <Stack gap="lg">
-                        {role === 'OWNER' ? (
-                            <>
-                                {pendingInstructors && <InstructorApprovalList instructors={pendingInstructors} />}
-                                {alerts && <CenterAlerts alerts={alerts} />}
-                            </>
+                        {isAlertsLoading || isInstructorsLoading ? (
+                            <DashboardSkeleton type="alerts" />
                         ) : (
-                            alerts && <CenterAlerts alerts={alerts} />
+                            role === 'OWNER' ? (
+                                <>
+                                    {pendingInstructors && <InstructorApprovalList instructors={pendingInstructors} />}
+                                    {alerts && <CenterAlerts alerts={alerts} />}
+                                </>
+                            ) : (
+                                alerts && <CenterAlerts alerts={alerts} />
+                            )
                         )}
                     </Stack>
                 </Grid.Col>
