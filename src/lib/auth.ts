@@ -157,7 +157,7 @@ export const authOptions: NextAuthOptions = {
                     isSignUpRequired: user.isSignUpRequired,
                     // Use decoding to find actual expiry, fallback to 1 hour
                     expiresAt: decoded?.exp ? decoded.exp * 1000 : Date.now() + (60 * 60 * 1000),
-                };
+                } as any;
             }
 
             // Return previous token if the access token has not expired yet
@@ -181,7 +181,7 @@ export const authOptions: NextAuthOptions = {
                     accessToken: result.accessToken,
                     refreshToken: result.refreshToken,
                     expiresAt: decoded?.exp ? decoded.exp * 1000 : Date.now() + (60 * 60 * 1000),
-                };
+                } as any;
             } catch (error) {
                 console.error("Error refreshing Access Token", error);
                 return { ...token, error: "RefreshAccessTokenError" as const };
@@ -191,7 +191,7 @@ export const authOptions: NextAuthOptions = {
             session.accessToken = token.accessToken;
             session.refreshToken = token.refreshToken;
             session.error = token.error;
-            session.user.id = token.id;
+            session.user.id = token.id as string;
             session.user.name = token.name;
             session.user.email = token.email;
             session.user.role = token.role;

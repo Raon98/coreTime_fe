@@ -219,7 +219,7 @@ export default function TicketManagementPage() {
 
     return (
         <Container size="xl" py="xl">
-            <Title order={2} mb="lg">수강권 현황 (Ticket Management)</Title>
+            <Title order={2} mb="lg">수강권 현황</Title>
 
             {/* Top Cards (Clickable) */}
             <SimpleGrid cols={{ base: 1, md: 3 }} spacing="lg" mb="xl">

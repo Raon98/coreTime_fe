@@ -3,60 +3,160 @@
 import {
     Title, Text, Container, Group, Card, Table, Badge,
     Button, Modal, Select, Stack, Divider, NumberInput,
-    Avatar, TextInput, Checkbox, ActionIcon
+    Avatar, TextInput, Checkbox, ActionIcon, Box, LoadingOverlay, Center,
+    SegmentedControl, ThemeIcon, Loader
 } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
-import { IconPlus, IconReceipt, IconCreditCard, IconMoneybag, IconSearch, IconFilter, IconDotsVertical, IconRefresh } from '@tabler/icons-react';
-import { useFinance, Transaction } from '@/context/FinanceContext';
-import { useMembers, Ticket } from '@/context/MemberContext';
+import {
+    IconPlus, IconReceipt, IconCreditCard, IconMoneybag, IconSearch,
+    IconFilter, IconDotsVertical, IconRefresh, IconAlertCircle
+} from '@tabler/icons-react';
+import { useMembers } from '@/context/MemberContext';
 import { useState, useMemo } from 'react';
 import dayjs from 'dayjs';
 import { notifications } from '@mantine/notifications';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import {
+    paymentApi, ticketProductApi, Payment, CreatePaymentCommand,
+    PaymentStatus, PaymentMethod, TicketProduct, memberApi
+} from '@/lib/api';
+import { modals } from '@mantine/modals';
+import { useDebouncedValue } from '@mantine/hooks';
 
 export default function PaymentPage() {
-    const { transactions, products, processPayment, updateTransaction } = useFinance();
-    const { members, addTicket } = useMembers();
+    const queryClient = useQueryClient();
+    const { members } = useMembers();
 
-    // UI State
+    // UI States
     const [opened, { open, close }] = useDisclosure(false);
+    const [selectedPayment, setSelectedPayment] = useState<Payment | null>(null);
     const [detailOpened, { open: openDetail, close: closeDetail }] = useDisclosure(false);
-    const [selectedTx, setSelectedTx] = useState<Transaction | null>(null);
-
-    // Filters
     const [search, setSearch] = useState('');
     const [statusFilter, setStatusFilter] = useState<string | null>('ALL');
 
-    const filteredTransactions = useMemo(() => {
-        return transactions.filter(tx => {
-            const matchesSearch = tx.memberName.includes(search) || tx.productName.includes(search);
-            const matchesStatus = statusFilter === 'ALL' || tx.status === statusFilter;
+    // Data Fetching
+    const { data: payments = [], isLoading: isLoadingPayments } = useQuery({
+        queryKey: ['payments'],
+        queryFn: paymentApi.getAll,
+    });
+
+    const { data: products = [] } = useQuery({
+        queryKey: ['ticketProducts'],
+        queryFn: ticketProductApi.getAll,
+    });
+
+    // Mutations
+    const createMutation = useMutation({
+        mutationFn: paymentApi.create,
+        onSuccess: () => {
+            notifications.show({
+                title: '결제 승인 완료',
+                message: '결제가 성공적으로 등록되었습니다.',
+                color: 'green',
+            });
+            queryClient.invalidateQueries({ queryKey: ['payments'] });
+            close();
+        },
+        onError: () => {
+            notifications.show({
+                title: '오류 발생',
+                message: '결제 처리 중 문제가 발생했습니다.',
+                color: 'red',
+            });
+        },
+    });
+
+    const refundMutation = useMutation({
+        mutationFn: paymentApi.refund,
+        onSuccess: () => {
+            notifications.show({
+                title: '환불 완료',
+                message: '결제가 환불 처리되었습니다.',
+                color: 'green',
+            });
+            queryClient.invalidateQueries({ queryKey: ['payments'] });
+            closeDetail();
+        },
+        onError: () => {
+            notifications.show({
+                title: '오류 발생',
+                message: '환불 처리 중 문제가 발생했습니다.',
+                color: 'red',
+            });
+        },
+    });
+
+    // Filtering
+    const filteredPayments = useMemo(() => {
+        return payments.filter(payment => {
+            const matchesSearch = payment.memberName.includes(search) || payment.productName.includes(search);
+            const matchesStatus = statusFilter === 'ALL' || payment.status === statusFilter;
             return matchesSearch && matchesStatus;
         }).sort((a, b) => new Date(b.paidAt).getTime() - new Date(a.paidAt).getTime());
-    }, [transactions, search, statusFilter]);
+    }, [payments, search, statusFilter]);
 
-    const handleRowClick = (tx: Transaction) => {
-        setSelectedTx(tx);
+    // Handlers
+    const handleRowClick = (payment: Payment) => {
+        setSelectedPayment(payment);
         openDetail();
     };
 
-    const handleRefund = () => {
-        if (selectedTx) {
-            updateTransaction(selectedTx.id, { status: 'REFUNDED' });
-            notifications.show({ title: '환불 처리', message: '결제 상태가 환불로 변경되었습니다.', color: 'gray' });
-            closeDetail();
+    const handleRefundConfirm = () => {
+        if (!selectedPayment) return;
+
+        modals.openConfirmModal({
+            title: '결제 환불',
+            children: (
+                <Text size="sm">
+                    이 결제 건을 환불 처리하시겠습니까?
+                    <br />
+                    환불 시 관련된 미수금 내역도 조정됩니다.
+                </Text>
+            ),
+            labels: { confirm: '환불 진행', cancel: '취소' },
+            confirmProps: { color: 'red' },
+            onConfirm: () => refundMutation.mutate(selectedPayment.id),
+        });
+    };
+
+    const handleCreatePayment = (command: CreatePaymentCommand) => {
+        createMutation.mutate(command);
+    };
+
+    const getStatusColor = (status: PaymentStatus) => {
+        switch (status) {
+            case 'PAID': return 'green';
+            case 'REFUNDED': return 'gray';
+            case 'CANCELLED': return 'red';
+            default: return 'gray';
         }
     };
 
+    const getStatusLabel = (status: PaymentStatus) => {
+        switch (status) {
+            case 'PAID': return '결제 완료';
+            case 'REFUNDED': return '환불';
+            case 'CANCELLED': return '취소';
+            default: return status;
+        }
+    };
+
+    const hasPayments = payments.length > 0;
+
     return (
         <Container size="xl" py="xl">
+            <LoadingOverlay visible={isLoadingPayments} />
+
             <Group justify="space-between" mb="lg">
                 <Box>
-                    <Title order={2}>결제 및 미수금 (Payments)</Title>
+                    <Title order={2}>결제 및 미수금</Title>
                     <Text c="dimmed">매출 내역을 확인하고 수강권을 판매(결제)합니다.</Text>
                 </Box>
-                <Button leftSection={<IconPlus size={18} />} onClick={open} color="indigo">
-                    새 결제 (수강권 판매)
-                </Button>
+                {hasPayments && (
+                    <Button leftSection={<IconPlus size={18} />} onClick={open} color="indigo">
+                        새 결제 (수강권 판매)
+                    </Button>
+                )}
             </Group>
 
             <Group mb="md">
@@ -65,6 +165,7 @@ export default function PaymentPage() {
                     leftSection={<IconSearch size={16} />}
                     value={search}
                     onChange={(e) => setSearch(e.currentTarget.value)}
+                    style={{ flex: 1, maxWidth: 300 }}
                 />
                 <Select
                     placeholder="상태 필터"
@@ -76,235 +177,361 @@ export default function PaymentPage() {
                     ]}
                     value={statusFilter}
                     onChange={setStatusFilter}
+                    allowDeselect={false}
+                    w={150}
                 />
             </Group>
+
+            {/* Empty State */}
+            {!isLoadingPayments && !hasPayments ? (
+                <Card withBorder radius="md" p="xl" style={{ minHeight: 300, display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+                    <Stack align="center" gap="md">
+                        <IconCreditCard size={64} style={{ opacity: 0.2 }} />
+                        <Title order={3} c="dimmed">결제 내역이 없습니다</Title>
+                        <Text c="dimmed" ta="center">
+                            첫 번째 수강권 판매를 진행해보세요.
+                        </Text>
+                        <Button leftSection={<IconPlus size={18} />} onClick={open} mt="sm">
+                            새 결제 등록하기
+                        </Button>
+                    </Stack>
+                </Card>
+            ) : (
+                <Card withBorder radius="md" p={0} mb="xl">
+                    <Table highlightOnHover verticalSpacing="sm">
+                        <Table.Thead bg="gray.0">
+                            <Table.Tr>
+                                <Table.Th>결제 일시</Table.Th>
+                                <Table.Th>회원명</Table.Th>
+                                <Table.Th>상품명</Table.Th>
+                                <Table.Th>결제 금액</Table.Th>
+                                <Table.Th>결제 수단</Table.Th>
+                                <Table.Th>상태</Table.Th>
+                            </Table.Tr>
+                        </Table.Thead>
+                        <Table.Tbody>
+                            {filteredPayments.map((payment) => (
+                                <Table.Tr
+                                    key={payment.id}
+                                    onClick={() => handleRowClick(payment)}
+                                    style={{ cursor: 'pointer' }}
+                                >
+                                    <Table.Td>{dayjs(payment.paidAt).format('YY.MM.DD HH:mm')}</Table.Td>
+                                    <Table.Td fw={500}>{payment.memberName}</Table.Td>
+                                    <Table.Td>{payment.productName}</Table.Td>
+                                    <Table.Td fw={700}>{payment.amount.toLocaleString()}원</Table.Td>
+                                    <Table.Td>
+                                        <Badge size="sm" variant="outline" color="gray">
+                                            {payment.method === 'CARD' ? '카드' : payment.method === 'TRANSFER' ? '계좌이체' : '현금'}
+                                        </Badge>
+                                    </Table.Td>
+                                    <Table.Td>
+                                        <Badge color={getStatusColor(payment.status)} variant="light">
+                                            {getStatusLabel(payment.status)}
+                                        </Badge>
+                                    </Table.Td>
+                                </Table.Tr>
+                            ))}
+                            {filteredPayments.length === 0 && (
+                                <Table.Tr>
+                                    <Table.Td colSpan={6}>
+                                        <Text ta="center" c="dimmed" py="xl">검색 결과가 없습니다.</Text>
+                                    </Table.Td>
+                                </Table.Tr>
+                            )}
+                        </Table.Tbody>
+                    </Table>
+                </Card>
+            )}
 
             {/* Payment Modal */}
             <PaymentModal
                 opened={opened}
                 onClose={close}
-                members={members}
-                products={products}
-                onProcess={async (memberId: string, productId: string, method: any, autoRegister: boolean) => {
-                    const member = members.find(m => m.id === memberId);
-                    const product = products.find(p => p.id === productId);
-
-                    if (member && product) {
-                        let linkedTicketId: string | undefined = undefined;
-
-                        if (autoRegister) {
-                            const newTicket = addTicket({
-                                memberId: member.id,
-                                name: product.name,
-                                totalCount: product.sessionCount,
-                                remainingCount: product.sessionCount,
-                                startDate: new Date(),
-                                endDate: dayjs().add(product.durationDays, 'day').toDate(),
-                                status: 'ACTIVE'
-                            });
-                            linkedTicketId = newTicket.id;
-                        }
-
-                        processPayment(memberId, member.name, productId, method, linkedTicketId);
-
-                        notifications.show({
-                            title: '결제 완료',
-                            message: autoRegister ? '결제 및 수강권 등록이 완료되었습니다.' : '결제가 완료되었습니다. (미사용 수강권)',
-                            color: 'green'
-                        });
-                    }
-                    close();
-                }}
+                products={products.filter(p => p.isActive)}
+                onProcess={handleCreatePayment}
+                isLoading={createMutation.isPending}
             />
 
             {/* Transaction Detail Modal */}
-            <Modal opened={detailOpened} onClose={closeDetail} title="결제 상세 정보">
-                {selectedTx && (
+            <Modal opened={detailOpened} onClose={closeDetail} title="결제 상세 정보" centered>
+                {selectedPayment && (
                     <Stack>
                         <Group justify="space-between">
                             <Text c="dimmed">주문 번호</Text>
-                            <Text>{selectedTx.id}</Text>
+                            <Text>{selectedPayment.id}</Text>
                         </Group>
                         <Group justify="space-between">
                             <Text c="dimmed">회원명</Text>
-                            <Text fw={500}>{selectedTx.memberName}</Text>
+                            <Text fw={500}>{selectedPayment.memberName}</Text>
                         </Group>
                         <Group justify="space-between">
                             <Text c="dimmed">상품명</Text>
-                            <Text>{selectedTx.productName}</Text>
+                            <Text>{selectedPayment.productName}</Text>
                         </Group>
                         <Group justify="space-between">
                             <Text c="dimmed">결제 금액</Text>
-                            <Text fw={700} c="indigo">{selectedTx.amount.toLocaleString()}원</Text>
+                            <Text fw={700} c="indigo">
+                                {new Intl.NumberFormat('ko-KR').format(selectedPayment.amount)}원
+                            </Text>
                         </Group>
                         <Group justify="space-between">
                             <Text c="dimmed">결제 수단</Text>
-                            <Badge color="gray">{selectedTx.method}</Badge>
+                            <Badge color="gray">
+                                {selectedPayment.method === 'CARD' ? '카드' : selectedPayment.method === 'TRANSFER' ? '계좌이체' : '현금'}
+                            </Badge>
                         </Group>
                         <Group justify="space-between">
                             <Text c="dimmed">결제 일시</Text>
-                            <Text>{dayjs(selectedTx.paidAt).format('YYYY-MM-DD HH:mm:ss')}</Text>
+                            <Text>{dayjs(selectedPayment.paidAt).format('YYYY-MM-DD HH:mm:ss')}</Text>
                         </Group>
                         <Divider />
                         <Group justify="space-between">
                             <Text c="dimmed">상태</Text>
-                            <Badge color={selectedTx.status === 'PAID' ? 'green' : 'gray'}>{selectedTx.status}</Badge>
+                            <Badge color={getStatusColor(selectedPayment.status)}>
+                                {getStatusLabel(selectedPayment.status)}
+                            </Badge>
                         </Group>
-                        {selectedTx.linkedTicketId ? (
-                            <Group justify="space-between">
-                                <Text c="dimmed">연동된 수강권</Text>
-                                <Badge color="blue" variant="dot">등록됨</Badge>
-                            </Group>
-                        ) : (
-                            <Text size="sm" c="orange" ta="center">⚠️ 수강권이 아직 등록되지 않았습니다.</Text>
-                        )}
 
-                        {selectedTx.status === 'PAID' && (
-                            <Button color="red" variant="subtle" mt="md" onClick={handleRefund}>
-                                결제 취소 / 환불
+                        {selectedPayment.status === 'PAID' && (
+                            <Button
+                                color="red"
+                                variant="light"
+                                mt="md"
+                                onClick={handleRefundConfirm}
+                                loading={refundMutation.isPending}
+                            >
+                                결제 환불
                             </Button>
                         )}
                     </Stack>
                 )}
             </Modal>
-
-            {/* Transaction Table */}
-            <Card withBorder radius="md" p={0}>
-                <Table highlightOnHover verticalSpacing="sm" className="cursor-pointer">
-                    <Table.Thead bg="gray.0">
-                        <Table.Tr>
-                            <Table.Th>결제 일시</Table.Th>
-                            <Table.Th>회원명</Table.Th>
-                            <Table.Th>상품명</Table.Th>
-                            <Table.Th>결제 금액</Table.Th>
-                            <Table.Th>결제 수단</Table.Th>
-                            <Table.Th>상태</Table.Th>
-                            <Table.Th>수강권</Table.Th>
-                        </Table.Tr>
-                    </Table.Thead>
-                    <Table.Tbody>
-                        {filteredTransactions.map((tx) => (
-                            <Table.Tr key={tx.id} onClick={() => handleRowClick(tx)} style={{ cursor: 'pointer' }}>
-                                <Table.Td>{dayjs(tx.paidAt).format('YY.MM.DD HH:mm')}</Table.Td>
-                                <Table.Td fw={500}>{tx.memberName}</Table.Td>
-                                <Table.Td>{tx.productName}</Table.Td>
-                                <Table.Td fw={700}>{tx.amount.toLocaleString()}원</Table.Td>
-                                <Table.Td>
-                                    <Badge size="sm" variant="outline" color="gray">{tx.method}</Badge>
-                                </Table.Td>
-                                <Table.Td>
-                                    <Badge color={tx.status === 'PAID' ? 'green' : 'gray'} variant="light">
-                                        {tx.status === 'PAID' ? '결제 완료' : '환불'}
-                                    </Badge>
-                                </Table.Td>
-                                <Table.Td>
-                                    {tx.linkedTicketId ? (
-                                        <IconReceipt size={16} color="gray" />
-                                    ) : (
-                                        <Badge color="orange" size="xs" variant="dot">미등록</Badge>
-                                    )}
-                                </Table.Td>
-                            </Table.Tr>
-                        ))}
-                    </Table.Tbody>
-                </Table>
-            </Card>
         </Container>
     );
 }
 
-// --- Components ---
-import { Box } from '@mantine/core';
-
-function PaymentModal({ opened, onClose, members, products, onProcess }: any) {
-    const [selectedMember, setSelectedMember] = useState<string | null>(null);
-    const [selectedProduct, setSelectedProduct] = useState<string | null>(null);
-    const [method, setMethod] = useState<string>('CARD');
+// Payment Modal Component
+function PaymentModal({ opened, onClose, products, onProcess, isLoading }: {
+    opened: boolean;
+    onClose: () => void;
+    products: TicketProduct[];
+    onProcess: (command: CreatePaymentCommand) => void;
+    isLoading: boolean;
+}) {
+    const [memberSearch, setMemberSearch] = useState('');
+    const [debouncedSearch] = useDebouncedValue(memberSearch, 300);
+    const [selectedMemberId, setSelectedMemberId] = useState<string | null>(null);
+    const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
+    const [amount, setAmount] = useState<number | ''>('');
+    const [method, setMethod] = useState<PaymentMethod>('CARD');
     const [autoRegister, setAutoRegister] = useState(true);
 
-    const productDetails = products.find((p: any) => p.id === selectedProduct);
+    // Fetch members based on search
+    const { data: members = [], isLoading: isLoadingMembers } = useQuery({
+        queryKey: ['members', 'search', debouncedSearch],
+        queryFn: () => memberApi.getMembers({ search: debouncedSearch || undefined, status: 'ACTIVE' }),
+        enabled: opened,
+    });
+
+    // Reset form on open
+    useMemo(() => {
+        if (opened) {
+            setMemberSearch('');
+            setSelectedMemberId(null);
+            setSelectedProductId(null);
+            setAmount('');
+            setMethod('CARD');
+            setAutoRegister(true);
+        }
+    }, [opened]);
+
+    const productDetails = useMemo(() =>
+        products.find(p => p.id.toString() === selectedProductId),
+        [products, selectedProductId]
+    );
+
+    // Auto-fill price when product selected
+    useMemo(() => {
+        if (productDetails) {
+            setAmount(productDetails.price);
+        }
+    }, [productDetails]);
 
     const handleProcess = () => {
-        onProcess(selectedMember, selectedProduct, method, autoRegister);
-        // Reset states
-        setSelectedMember(null);
-        setSelectedProduct(null);
-        setMethod('CARD');
-        setAutoRegister(true);
+        if (selectedMemberId && selectedProductId && amount !== '') {
+            onProcess({
+                membershipId: parseInt(selectedMemberId),
+                productId: parseInt(selectedProductId),
+                amount: Number(amount),
+                method: method,
+            });
+        }
     };
 
     return (
         <Modal
             opened={opened}
             onClose={onClose}
-            title={<Text fw={700}>수강권 판매 (POS)</Text>}
+            title={<Text fw={700} size="lg">수강권 판매</Text>}
             size="lg"
+            centered
+            overlayProps={{ backgroundOpacity: 0.55, blur: 3 }}
         >
-            <Stack>
-                <Select
-                    label="회원 선택"
-                    placeholder="이름 또는 전화번호 검색"
-                    data={members.map((m: any) => ({ value: m.id, label: `${m.name} (${m.phone.slice(-4)})` }))}
-                    value={selectedMember}
-                    onChange={setSelectedMember}
-                    searchable
-                />
+            <Stack gap="xl">
+                {/* 1. 회원 및 상품 선택 섹션 */}
+                <Stack gap="md">
+                    <Text size="sm" fw={700} c="dimmed" tt="uppercase">1. 판매 정보</Text>
+                    <Select
+                        label="회원 선택"
+                        placeholder="이름 또는 전화번호 검색"
+                        data={members.map(m => ({
+                            value: m.id.toString(),
+                            label: `${m.name} (${m.phone.slice(-4)})`
+                        }))}
+                        value={selectedMemberId}
+                        onChange={setSelectedMemberId}
+                        searchable
+                        searchValue={memberSearch}
+                        onSearchChange={setMemberSearch}
+                        nothingFoundMessage={
+                            memberSearch.length > 0 ? (
+                                <Stack align="center" gap="xs" py="sm">
+                                    <IconSearch size={24} style={{ opacity: 0.3 }} />
+                                    <Text size="sm" c="dimmed">검색 결과가 없습니다.</Text>
+                                    <Button variant="light" size="compact-xs" leftSection={<IconPlus size={12} />}>
+                                        신규 회원 등록하러 가기
+                                    </Button>
+                                </Stack>
+                            ) : "회원을 검색해주세요"
+                        }
+                        required
+                        leftSection={isLoadingMembers ? <Loader size="xs" /> : <IconSearch size={16} />}
+                    />
 
-                <Select
-                    label="상품 선택"
-                    placeholder="판매할 수강권 선택"
-                    data={products.filter((p: any) => p.isActive).map((p: any) => ({ value: p.id, label: p.name }))}
-                    value={selectedProduct}
-                    onChange={setSelectedProduct}
-                />
+                    <Select
+                        label="상품 선택"
+                        placeholder="판매할 수강권 상품 선택"
+                        data={products.map(p => ({
+                            value: p.id.toString(),
+                            label: p.name
+                        }))}
+                        value={selectedProductId}
+                        onChange={setSelectedProductId}
+                        required
+                        leftSection={<IconReceipt size={16} />}
+                    />
+                </Stack>
 
+                {/* 상품 미리보기 카드 */}
                 {productDetails && (
-                    <Card bg="gray.0" withBorder radius="md">
-                        <Group justify="space-between" mb={4}>
-                            <Text size="sm">결제 금액</Text>
-                            <Text fw={700} size="lg" c="indigo">{productDetails.price.toLocaleString()}원</Text>
+                    <Card
+                        withBorder
+                        padding="lg"
+                        radius="md"
+                        bg="var(--mantine-color-indigo-0)"
+                        style={{ borderColor: 'var(--mantine-color-indigo-2)' }}
+                    >
+                        <Group justify="space-between" align="flex-start">
+                            <Stack gap={4}>
+                                <Badge color="indigo" variant="light">선택된 상품</Badge>
+                                <Text fw={700} size="lg" mt={4}>{productDetails.name}</Text>
+                                <Group gap="xs" c="dimmed" fz="sm">
+                                    <Text span>{productDetails.sessionCount}회</Text>
+                                    <Divider orientation="vertical" />
+                                    <Text span>{productDetails.durationDays}일 유효</Text>
+                                </Group>
+                            </Stack>
+                            <ThemeIcon size={48} radius="md" color="indigo" variant="white">
+                                <IconReceipt size={28} />
+                            </ThemeIcon>
                         </Group>
-                        <Text size="xs" c="dimmed">{productDetails.sessionCount}회 / {productDetails.durationDays}일 유효</Text>
                     </Card>
                 )}
 
-                <Divider label="결제 설정" labelPosition="center" />
+                <Divider />
 
-                <Group grow>
-                    <Button
-                        variant={method === 'CARD' ? 'filled' : 'default'}
-                        onClick={() => setMethod('CARD')}
-                        leftSection={<IconCreditCard size={16} />}
-                    >
-                        카드
-                    </Button>
-                    <Button
-                        variant={method === 'TRANSFER' ? 'filled' : 'default'}
-                        onClick={() => setMethod('TRANSFER')}
+                {/* 2. 결제 정보 섹션 */}
+                <Stack gap="md">
+                    <Text size="sm" fw={700} c="dimmed" tt="uppercase">2. 결제 처리</Text>
+
+                    <NumberInput
+                        label="최종 결제 금액"
+                        placeholder="0"
+                        value={amount}
+                        onChange={(val) => setAmount(val === '' ? '' : Number(val))}
+                        required
                         leftSection={<IconMoneybag size={16} />}
-                    >
-                        이체/현금
-                    </Button>
-                </Group>
-
-                <Card withBorder radius="md" p="sm">
-                    <Checkbox
-                        label="결제 즉시 수강권 등록"
-                        description="체크 해제 시 결제 내역만 생성됩니다. (나중에 수강권 등록 가능)"
-                        checked={autoRegister}
-                        onChange={(e) => setAutoRegister(e.currentTarget.checked)}
+                        thousandSeparator=","
+                        prefix="₩ "
+                        size="md"
+                        styles={{
+                            input: { fontWeight: 700, fontSize: '18px', color: 'var(--mantine-color-indigo-7)' }
+                        }}
                     />
-                </Card>
+
+                    <Box>
+                        <Text size="sm" fw={500} mb={8}>결제 수단</Text>
+                        <SegmentedControl
+                            fullWidth
+                            value={method}
+                            onChange={(val) => setMethod(val as PaymentMethod)}
+                            data={[
+                                {
+                                    value: 'CARD',
+                                    label: (
+                                        <Center style={{ gap: 10 }}>
+                                            <IconCreditCard size={16} />
+                                            <span>카드</span>
+                                        </Center>
+                                    )
+                                },
+                                {
+                                    value: 'TRANSFER',
+                                    label: (
+                                        <Center style={{ gap: 10 }}>
+                                            <IconMoneybag size={16} />
+                                            <span>계좌이체</span>
+                                        </Center>
+                                    )
+                                },
+                                {
+                                    value: 'CASH',
+                                    label: (
+                                        <Center style={{ gap: 10 }}>
+                                            <IconMoneybag size={16} />
+                                            <span>현금</span>
+                                        </Center>
+                                    )
+                                },
+                            ]}
+                        />
+                    </Box>
+
+                    <Card withBorder radius="md" p="sm" bg="gray.0">
+                        <Checkbox
+                            label="결제 즉시 수강권 자동 등록"
+                            description="체크 시 회원의 보유 수강권 목록에 자동으로 추가됩니다."
+                            checked={autoRegister}
+                            onChange={(e) => setAutoRegister(e.currentTarget.checked)}
+                            color="indigo"
+                        />
+                    </Card>
+                </Stack>
 
                 <Button
                     mt="md"
-                    size="lg"
-                    disabled={!selectedMember || !selectedProduct}
+                    size="xl"
+                    disabled={!selectedMemberId || !selectedProductId || amount === ''}
+                    loading={isLoading}
                     onClick={handleProcess}
+                    color="indigo"
+                    rightSection={<IconCreditCard size={20} />}
                 >
-                    결제 승인
+                    {amount ? `${new Intl.NumberFormat('ko-KR').format(Number(amount))}원 결제 승인` : '결제 승인'}
                 </Button>
             </Stack>
         </Modal>
     );
 }
+

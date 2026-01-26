@@ -59,9 +59,12 @@ export interface JoinOrganizationCommand {
 }
 
 export interface SignUpResult {
+    accountId: number | string;
+    organizationId: number;
+    identity: 'OWNER' | 'INSTRUCTOR' | 'MEMBER';
+    status: 'ACTIVE' | 'PENDING_APPROVAL';
     accessToken: string;
     refreshToken: string;
-    status: 'ACTIVE' | 'PENDING_APPROVAL';
 }
 
 export interface ReissueResult {
@@ -70,7 +73,7 @@ export interface ReissueResult {
 }
 
 export interface MeResult {
-    accountId: string; // Updated to string as per JSON example, though DTO says Long (serialized as string often)
+    accountId: string | number;
     name: string;
     identity: 'OWNER' | 'INSTRUCTOR' | 'MEMBER' | 'SYSTEM_ADMIN';
     organizationId: number | null;
@@ -91,10 +94,63 @@ export interface NotificationSettings {
     marketingConsent: boolean;
 }
 
-export interface UploadAvatarResult {
-    profileImageUrl: string;
+// Ticket Product Types
+export type TicketProductType = 'ONE_TO_ONE' | 'GROUP';
+
+export interface TicketProduct {
+    id: number;
+    name: string;
+    type: TicketProductType;
+    sessionCount: number;
+    durationDays: number;
+    price: number;
+    isActive: boolean;
+    createdAt: string;
 }
 
+export interface CreateTicketProductCommand {
+    name: string;
+    type: TicketProductType;
+    sessionCount: number;
+    durationDays: number;
+    price: number;
+}
+
+export interface UpdateTicketProductCommand {
+    name: string;
+    type: TicketProductType;
+    sessionCount: number;
+    durationDays: number;
+    price: number;
+}
+
+// Payment Types
+export type PaymentMethod = 'CARD' | 'TRANSFER' | 'CASH';
+export type PaymentStatus = 'PAID' | 'REFUNDED' | 'CANCELLED';
+
+export interface Payment {
+    id: number;
+    membershipId: number;
+    memberName: string;
+    productName: string;
+    amount: number;
+    method: PaymentMethod;
+    status: PaymentStatus;
+    paidAt: string;
+    refundedAt?: string;
+}
+
+export interface CreatePaymentCommand {
+    membershipId: number;
+    productId: number;
+    amount: number;
+    method: PaymentMethod;
+    linkedTicketId?: number | null;
+}
+
+export interface RefundResult {
+    status: PaymentStatus;
+}
 // --- API Client ---
 
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL + "/api/v1" || 'http://localhost:8080/api/v1';
@@ -250,7 +306,7 @@ export interface InviteCodeResult {
 }
 
 export interface InstructorDto {
-    membershipId: number;
+    membershipId: string | number;
     accountId: string | number; // Updated
     name: string;
     email: string;
@@ -371,7 +427,7 @@ export const authApi = {
 export const profileApi = {
     // Update profile information
     updateProfile: async (command: UpdateProfileCommand) => {
-        const response = await api.put<ApiResponse<MeResult>>('/users/me', command);
+        const response = await api.put<ApiResponse<MeResult>>('/profile/me', command);
         return response.data.data;
     },
 
@@ -379,24 +435,84 @@ export const profileApi = {
     uploadAvatar: async (file: File) => {
         const formData = new FormData();
         formData.append('file', file);
-        const response = await api.post<ApiResponse<UploadAvatarResult>>('/users/me/avatar', formData, {
+        const response = await api.post<ApiResponse<string>>('/profile/me/avatar', formData, {
             headers: {
                 'Content-Type': 'multipart/form-data',
             },
         });
-        return response.data.data;
+        return { profileImageUrl: response.data.data };
     },
 
     // Get notification settings
     getNotificationSettings: async () => {
-        const response = await api.get<ApiResponse<NotificationSettings>>('/users/me/notification-settings');
+        const response = await api.get<ApiResponse<NotificationSettings>>('/profile/me/notifications');
         return response.data.data;
     },
 
     // Update notification settings
     updateNotificationSettings: async (settings: NotificationSettings) => {
-        const response = await api.put<ApiResponse<NotificationSettings>>('/users/me/notification-settings', settings);
+        const response = await api.put<ApiResponse<void>>('/profile/me/notifications', settings);
+        return settings;
+    },
+
+    // Delete account
+    deleteAccount: async () => {
+        const response = await api.delete<ApiResponse<void>>('/profile/me');
+        return response.data;
+    },
+};
+
+// Ticket Product API
+export const ticketProductApi = {
+    // Create ticket product
+    create: async (command: CreateTicketProductCommand) => {
+        const response = await api.post<ApiResponse<TicketProduct>>('/finance/tickets/products', command);
         return response.data.data;
+    },
+
+    // Get all ticket products
+    getAll: async () => {
+        const response = await api.get<ApiResponse<TicketProduct[]>>('/finance/tickets/products');
+        return response.data.data;
+    },
+
+    // Update ticket product
+    update: async (productId: number, command: UpdateTicketProductCommand) => {
+        const response = await api.put<ApiResponse<TicketProduct>>(`/finance/tickets/products/${productId}`, command);
+        return response.data.data;
+    },
+
+    // Toggle product status
+    toggleStatus: async (productId: number) => {
+        const response = await api.patch<ApiResponse<void>>(`/finance/tickets/products/${productId}/status`);
+        return response.data;
+    },
+
+    // Delete ticket product
+    delete: async (productId: number) => {
+        const response = await api.delete<ApiResponse<void>>(`/finance/tickets/products/${productId}`);
+        return response.data;
+    },
+};
+
+// Payment API
+export const paymentApi = {
+    // Create new payment
+    create: async (command: CreatePaymentCommand) => {
+        const response = await api.post<ApiResponse<Payment>>('/finance/payments', command);
+        return response.data.data;
+    },
+
+    // Get all payments
+    getAll: async () => {
+        const response = await api.get<ApiResponse<Payment[]>>('/finance/payments');
+        return response.data.data;
+    },
+
+    // Refund payment
+    refund: async (paymentId: number) => {
+        const response = await api.post<ApiResponse<RefundResult>>(`/finance/payments/${paymentId}/refund`);
+        return response.data;
     },
 };
 
@@ -500,17 +616,78 @@ export function usePendingInstructors(options?: Omit<UseQueryOptions<InstructorD
 
 // --- Member Hooks ---
 
+// --- Member Hooks ---
+
+export interface MembershipDto {
+    id: string | number;
+    name: string;
+    phone: string;
+    status: 'ACTIVE' | 'PENDING_APPROVAL' | 'REJECTED' | 'INACTIVE' | 'WITHDRAWN';
+    gender?: 'MALE' | 'FEMALE';
+    birthDate?: string;
+    profileImageUrl?: string | null;
+    pinnedNote?: string | null;
+    lastAttendanceAt?: string;
+    createdAt: string;
+}
+
+export interface MemberSearchQuery {
+    status?: string; // Comma separated list
+    search?: string;
+}
+
+export interface UpdateMemberCommand {
+    name: string;
+    phone: string;
+    gender?: 'MALE' | 'FEMALE';
+    birthDate?: string;
+    status?: string;
+    pinnedNote?: string;
+}
+
+
+export interface RegisterByStaffCommand {
+    name: string;
+    phone: string;
+    gender?: 'MALE' | 'FEMALE';
+    birthDate?: string;
+    email?: string;
+}
+
 // Temporary imports until backend connected
 import { getMockMembers, getMockTickets, Member, Ticket } from '@/context/MemberContext';
 
-// Temporary API functions to simulate fetch
+// Real API functions
 export const memberApi = {
-    getMembers: async (): Promise<Member[]> => {
-        await new Promise(resolve => setTimeout(resolve, 600));
-        // We need to move getMockMembers implementation out of Context or duplicate usage logic
-        // For now, let's assume it returns the array
-        return getMockMembers();
+    getMembers: async (query?: MemberSearchQuery): Promise<MembershipDto[]> => {
+        const response = await api.get<ApiResponse<MembershipDto[]>>('/memberships', {
+            params: query
+        });
+        return response.data.data;
     },
+    getMember: async (membershipId: number): Promise<MembershipDto> => {
+        // Assuming there is a GET single endpoint or we filter from list?
+        // User doc only shows listing, but usually we need detail. 
+        // For now, if no detail endpoint, we might reuse list or assuming /memberships/{id} exists implicitly standard REST
+        // However, doc says "Update Member Info" is PATCH /api/v1/memberships/{membershipId}
+        // Let's assume GET /api/v1/memberships/{membershipId} exists or we rely on the list.
+        // For safety, I'll restrict to list for now as per specific request instructions unless needed.
+        throw new Error("Get single member not explicitly documented yet");
+    },
+    updateMember: async (membershipId: string | number, command: UpdateMemberCommand): Promise<MembershipDto> => {
+        const response = await api.patch<ApiResponse<MembershipDto>>(`/memberships/${membershipId}`, command);
+        return response.data.data;
+    },
+    createMember: async (command: JoinOrganizationCommand): Promise<SignUpResult> => {
+        const response = await api.post<ApiResponse<SignUpResult>>('/memberships', command);
+        return response.data.data;
+    },
+    registerByStaff: async (command: RegisterByStaffCommand): Promise<MembershipDto> => {
+        const response = await api.post<ApiResponse<MembershipDto>>('/memberships/register', command);
+        return response.data.data;
+    },
+
+    // Legacy/Mock methods for tickets until real ticket API is ready
     getTickets: async (): Promise<Ticket[]> => {
         await new Promise(resolve => setTimeout(resolve, 600));
         return getMockTickets();
@@ -524,10 +701,10 @@ export const memberKeys = {
     memberTickets: (memberId: string | number) => ['tickets', 'member', memberId] as const,
 };
 
-export function useMembersList(options?: Omit<UseQueryOptions<Member[], Error>, 'queryKey' | 'queryFn'>) {
+export function useMembersList(options?: Omit<UseQueryOptions<MembershipDto[], Error>, 'queryKey' | 'queryFn'>) {
     return useQuery({
         queryKey: memberKeys.all,
-        queryFn: memberApi.getMembers,
+        queryFn: () => memberApi.getMembers(),
         staleTime: 5 * 60 * 1000,
         ...options
     });

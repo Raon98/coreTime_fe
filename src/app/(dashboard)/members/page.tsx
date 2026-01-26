@@ -20,46 +20,43 @@ import MemberFormModal from '@/components/dashboard/members/MemberFormModal';
 import ConsultationLogList from '@/components/dashboard/members/ConsultationLogList';
 import AlimTalkModal from '@/components/dashboard/members/AlimTalkModal';
 import { MemberTableSkeleton } from '@/components/dashboard/members/MemberSkeleton';
+import { memberApi } from '@/lib/api';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 
 export default function MemberListPage() {
-    const { members, tickets, isLoading } = useMembers(); // Added isLoading
     const [search, setSearch] = useState('');
     const [statusFilter, setStatusFilter] = useState<string[]>([]);
 
-    // ... items ...
+    // Use Real API Hook
+    const { data: members = [], isLoading } = useQuery({
+        queryKey: ['members', { search, statusFilter }],
+        queryFn: () => memberApi.getMembers({
+            search: search || undefined,
+            status: statusFilter.length > 0 ? statusFilter.join(',') : undefined
+        }),
+    });
+
+    // Mock tickets needed temporarily for display compatibility
+    const { tickets } = useMembers();
 
     // UI States
-    const [selectedMember, setSelectedMember] = useState<Member | null>(null);
+    const [selectedMember, setSelectedMember] = useState<any | null>(null); // Relaxed type for transition
     const [drawerOpened, { open: openDrawer, close: closeDrawer }] = useDisclosure(false);
 
     // Modals
     const [isFormOpen, setIsFormOpen] = useState(false);
-    const [editTarget, setEditTarget] = useState<Member | null>(null);
+    const [editTarget, setEditTarget] = useState<any | null>(null);
 
     const [isAlimTalkOpen, setIsAlimTalkOpen] = useState(false);
-    const [alimTalkTarget, setAlimTalkTarget] = useState<Member | null>(null);
+    const [alimTalkTarget, setAlimTalkTarget] = useState<any | null>(null);
 
-    // Filter Logic
-    const filteredMembers = useMemo(() => {
-        return members.filter(m => {
-            const matchesSearch =
-                m.name.includes(search) ||
-                m.phone.includes(search);
-            const matchesStatus =
-                statusFilter.length === 0 ||
-                statusFilter.includes(m.status);
-            return matchesSearch && matchesStatus;
-        });
-    }, [members, search, statusFilter]);
-
-    // ... handlers ...
-
-    const handleRowClick = (member: Member) => {
+    // Handlers
+    const handleRowClick = (member: any) => {
         setSelectedMember(member);
         openDrawer();
     };
 
-    const handleEditMember = (member: Member) => {
+    const handleEditMember = (member: any) => {
         setEditTarget(member);
         setIsFormOpen(true);
     };
@@ -69,7 +66,7 @@ export default function MemberListPage() {
         setIsFormOpen(true);
     };
 
-    const handleSendAlimTalk = (member: Member) => {
+    const handleSendAlimTalk = (member: any) => {
         setAlimTalkTarget(member);
         setIsAlimTalkOpen(true);
     };
@@ -79,7 +76,7 @@ export default function MemberListPage() {
             {/* Header */}
             <Group justify="space-between" mb="lg">
                 <Box>
-                    <Title order={2}>회원 목록 (Member List)</Title>
+                    <Title order={2}>회원 목록</Title>
                     <Text c="dimmed">전체 회원을 조회하고 관리합니다.</Text>
                 </Box>
                 <Button leftSection={<IconUserPlus size={18} />} onClick={handleNewMember}>신규 회원 등록</Button>
@@ -99,10 +96,10 @@ export default function MemberListPage() {
                     label="상태 필터"
                     placeholder="상태 선택 (전체)"
                     data={[
-                        { value: 'ACTIVE', label: '활동회원' },
-                        { value: 'DORMANT', label: '휴면회원' },
-                        { value: 'EXPIRED', label: '만료회원' },
-                        { value: 'PENDING', label: '대기회원' },
+                        { value: 'INACTIVE', label: '비활성화' },
+                        { value: 'PENDING_APPROVAL', label: '승인대기' },
+                        { value: 'WITHDRAWN', label: '탈퇴' },
+                        { value: 'REJECTED', label: '가입거절' },
                     ]}
                     value={statusFilter}
                     onChange={setStatusFilter}
@@ -130,27 +127,31 @@ export default function MemberListPage() {
                             </Table.Tr>
                         </Table.Thead>
                         <Table.Tbody>
-                            {filteredMembers.length > 0 ? filteredMembers.map((member) => {
-                                // Find active ticket (simplified: first active)
-                                const memberTicket = tickets.find(t => t.memberId === member.id && t.status === 'ACTIVE');
+                            {members.length > 0 ? members.map((member) => {
+                                // Find active ticket (simplified: mock compatibility)
+                                const memberTicket = tickets.find(t => t.memberId === String(member.id) && t.status === 'ACTIVE');
 
                                 return (
                                     <Table.Tr key={member.id} style={{ cursor: 'pointer' }} onClick={() => handleRowClick(member)}>
                                         <Table.Td>
                                             <Group gap="sm">
-                                                <Avatar size="sm" radius="xl" color="indigo" name={member.name} />
+                                                <Avatar size="sm" radius="xl" color="indigo" name={member.name} src={member.profileImageUrl} />
                                                 <Text size="sm" fw={500}>{member.name}</Text>
                                             </Group>
                                         </Table.Td>
                                         <Table.Td>
-                                            <Text size="sm">{member.gender === 'MALE' ? '남성' : '여성'}</Text>
+                                            <Text size="sm">{member.gender === 'MALE' ? '남성' : member.gender === 'FEMALE' ? '여성' : '-'}</Text>
                                         </Table.Td>
                                         <Table.Td>
                                             <Badge
-                                                color={member.status === 'ACTIVE' ? 'green' : member.status === 'DORMANT' ? 'gray' : 'red'}
+                                                color={member.status === 'ACTIVE' ? 'green' : member.status === 'INACTIVE' ? 'gray' : member.status === 'PENDING_APPROVAL' ? 'orange' : 'red'}
                                                 variant="light"
                                             >
-                                                {member.status}
+                                                {member.status === 'ACTIVE' ? '활동' :
+                                                    member.status === 'INACTIVE' ? '비활성화' :
+                                                        member.status === 'PENDING_APPROVAL' ? '승인대기' :
+                                                            member.status === 'WITHDRAWN' ? '탈퇴' :
+                                                                member.status === 'REJECTED' ? '가입거절' : member.status}
                                             </Badge>
                                         </Table.Td>
                                         <Table.Td>{member.phone}</Table.Td>
@@ -240,7 +241,40 @@ function MemberDrawer({
     onEdit: () => void,
     onSendAlimTalk: () => void
 }) {
-    const { tickets, updateMember } = useMembers();
+    const queryClient = useQueryClient();
+    const { tickets } = useMembers();
+
+    const noteMutation = useMutation({
+        mutationFn: async ({ id, note }: { id: string | number, note: string }) => {
+            const membershipId = id;
+
+            if (!member) return;
+            return memberApi.updateMember(membershipId, {
+                name: member.name,
+                phone: member.phone,
+                pinnedNote: note,
+                gender: member.gender as any,
+                status: member.status,
+                birthDate: member.birthDate || undefined
+            });
+        },
+        onSuccess: () => {
+            notifications.show({
+                title: '저장됨',
+                message: '특이사항이 업데이트되었습니다.',
+                color: 'green'
+            });
+            queryClient.invalidateQueries({ queryKey: ['members'] });
+            setIsEditingNote(false);
+        },
+        onError: () => {
+            notifications.show({
+                title: '저장 실패',
+                message: '특이사항 업데이트 중 오류가 발생했습니다.',
+                color: 'red'
+            });
+        }
+    });
 
     // Local state for pinned note editing
     const [isEditingNote, setIsEditingNote] = useState(false);
@@ -257,13 +291,9 @@ function MemberDrawer({
     const memberTickets = tickets.filter(t => t.memberId === member.id);
 
     const handleSaveNote = () => {
-        updateMember(member.id, { pinnedNote: noteValue });
-        setIsEditingNote(false);
-        notifications.show({
-            title: '저장됨',
-            message: '특이사항이 업데이트되었습니다.',
-            color: 'green'
-        });
+        if (member) {
+            noteMutation.mutate({ id: member.id, note: noteValue });
+        }
     };
 
     return (
@@ -285,7 +315,11 @@ function MemberDrawer({
                                 <Text c="dimmed" size="sm" mt={4}>{member.phone}</Text>
                                 <Text size="xs" c="dimmed">{member.gender === 'MALE' ? '남성' : '여성'} · {member.birthDate || '생일 미입력'}</Text>
                             </Box>
-                            <Badge size="lg" color={member.status === 'ACTIVE' ? 'green' : 'gray'}>{member.status}</Badge>
+                            <Badge size="lg" color={member.status === 'ACTIVE' ? 'green' : 'gray'}>
+                                {member.status === 'ACTIVE' ? '활동' :
+                                    member.status === 'DORMANT' ? '휴면' :
+                                        member.status === 'EXPIRED' ? '만료' : '일반'}
+                            </Badge>
                         </Group>
                         <Group mt="sm" gap="xs">
                             <Button size="xs" variant="default" leftSection={<IconDeviceMobileMessage size={14} />} onClick={onSendAlimTalk}>알림톡</Button>
@@ -308,7 +342,7 @@ function MemberDrawer({
                         ) : (
                             <Group gap={4}>
                                 <Button size="compact-xs" variant="light" onClick={() => setIsEditingNote(false)}>취소</Button>
-                                <Button size="compact-xs" onClick={handleSaveNote}>저장</Button>
+                                <Button size="compact-xs" onClick={handleSaveNote} loading={noteMutation.isPending}>저장</Button>
                             </Group>
                         )}
                     </Group>

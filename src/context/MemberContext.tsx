@@ -91,8 +91,21 @@ const MemberContext = createContext<MemberContextType | undefined>(undefined);
 
 export function MemberProvider({ children }: { children: ReactNode }) {
     // Use React Query for data fetching
-    const { data: members = [], isLoading: isMembersLoading } = useMembersList();
+    const { data: memberDtos = [], isLoading: isMembersLoading } = useMembersList();
     const { data: tickets = [], isLoading: isTicketsLoading } = useTicketsList();
+
+    // Map DTOs to UI Member type
+    const members = memberDtos.map(dto => ({
+        id: String(dto.id),
+        name: dto.name,
+        phone: dto.phone,
+        gender: dto.gender || 'FEMALE',
+        birthDate: dto.birthDate,
+        status: dto.status === 'PENDING_APPROVAL' ? 'PENDING' : (dto.status as any),
+        registeredAt: new Date(dto.createdAt),
+        lastAttendanceAt: dto.lastAttendanceAt ? new Date(dto.lastAttendanceAt) : undefined,
+        pinnedNote: dto.pinnedNote || undefined,
+    } as Member));
 
     // Logs still local for now as no API hook created yet
     const [logs, setLogs] = useState<ConsultationLog[]>([]);

@@ -134,16 +134,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     const [currentBranch, setCurrentBranch] = useState<string>(''); // Name of current branch
     const [isSwitching, setIsSwitching] = useState(false);
 
-    // Auto-refresh user data if missing
-    useEffect(() => {
-        // If auth is not loading, but user is null, attempt to refresh
-        // This handles cases where the user data failed to load initially
-        if (!isAuthLoading && !user) {
-            console.log('AppShell: User is null but not loading, attempting refresh...');
-            refreshUser();
-        }
-    }, [isAuthLoading, user, refreshUser]);
-
     // Initialize Current Branch
     useEffect(() => {
         if (organizations.length > 0 && !currentBranch) {

@@ -59,24 +59,32 @@ function AuthContent({ children }: { children: ReactNode }) {
 
     const isLoading = status === 'loading';
 
-    // Internal: Load profile from API with session tracking
     const loadProfileInternal = async (sessionId: string) => {
+        // Prevent multiple concurrent calls for the same session
+        if (loadedSessionId.current === sessionId) return;
+        loadedSessionId.current = sessionId;
+
         try {
+            console.log('AuthContext: Loading profile for session:', sessionId);
             const profile = await authApi.getMe();
             console.log('AuthContext: Loaded profile from API:', profile);
+
+            if (!profile) throw new Error('Profile is empty');
+
             setUser(prev => ({
                 id: profile.accountId,
                 name: profile.name,
                 email: prev?.email || '',
                 phone: prev?.phone,
-                role: normalizeRole(profile.identity), // Normalize role from API
+                role: normalizeRole(profile.identity),
                 organizationId: profile.organizationId,
                 status: 'ACTIVE',
                 profileImageUrl: profile.profileImageUrl,
             }));
-            loadedSessionId.current = sessionId;
         } catch (error) {
             console.error('AuthContext: Failed to load profile:', error);
+            // Reset on failure so it can be retried if needed
+            loadedSessionId.current = null;
         }
     };
 
