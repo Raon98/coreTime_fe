@@ -45,7 +45,7 @@ const getNavItems = (role: UserRole): NavItem[] => {
         },
     ];
 
-    if (role === 'OWNER') {
+    if (role === 'OWNER' || role === 'SYSTEM_ADMIN') {
         return [
             ...common,
             {
@@ -170,7 +170,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     const handleRegisterBranch = () => {
         // Direct redirect for Owner, bypassing Identity Check if already logged in
         if (user) {
-            if (user.role === 'OWNER') {
+            if (user.role === 'OWNER' || user.role === 'SYSTEM_ADMIN') {
                 router.push('/register/create-center');
                 return;
             }
