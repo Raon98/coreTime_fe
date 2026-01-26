@@ -1,6 +1,6 @@
 'use client';
 
-import { Container, Paper, Title, Text, Button, Group, Stack, Box, Divider, Anchor, Modal, ScrollArea, Avatar, ThemeIcon } from '@mantine/core';
+import { Container, Paper, Title, Text, Button, Group, Stack, Box, Divider, Anchor, Modal, ScrollArea, Avatar, ThemeIcon, Transition } from '@mantine/core';
 import { useAuth } from '@/context/AuthContext';
 import { BrandLogo } from '@/components/common/BrandLogo';
 import { useDisclosure } from '@mantine/hooks';
@@ -121,73 +121,78 @@ function LoginContent() {
             position: 'relative',
         }}>
 
-            <Container size="xs" w={400} px="md" style={{ zIndex: 1 }}>
-                <Stack align="center" gap={40}>
+            {/* Entrance animation wrapper */}
+            <Transition mounted={true} transition="fade-up" duration={600} timingFunction="ease">
+                {(styles: React.CSSProperties) => (
+                    <Container size="xs" w={400} px="md" style={{ ...styles, zIndex: 1 }}>
+                        <Stack align="center" gap={40}>
 
-                    {/* Brand Logo - Centered */}
-                    <Stack align="center" gap="xs">
-                        <BrandLogo size="xl" />
-                        <Title order={2} size={16} fw={500} c="dimmed" ta="center" style={{ letterSpacing: '-0.3px', marginTop: 4 }}>
-                            센터 운영의 모든 것
-                        </Title>
-                    </Stack>
+                            {/* Brand Logo - Centered */}
+                            <Stack align="center" gap="xs">
+                                <BrandLogo size="xl" />
+                                <Title order={2} size={16} fw={500} c="dimmed" ta="center" style={{ letterSpacing: '-0.3px', marginTop: 4 }}>
+                                    센터 운영의 모든 것
+                                </Title>
+                            </Stack>
 
-                    {/* Main Actions */}
-                    <Stack w="100%" gap={12}>
-                        {/* Kakao Button */}
-                        <Button
-                            fullWidth
-                            h={48}
-                            bg="#FEE500"
-                            c="#191919"
-                            component="a"
-                            href={`${process.env.NEXT_PUBLIC_API_URL}/oauth2/authorization/kakao?clientUrl=${process.env.NEXT_PUBLIC_CLIENT_URL}`}
-                            leftSection={<KakaoIcon style={{ width: 18, height: 18, position: 'relative', top: 1 }} />}
-                            radius="md"
-                            styles={{
-                                root: { border: 'none' },
-                                label: { fontWeight: 600, fontSize: '15px' },
-                                inner: { justifyContent: 'center' }
-                            }}
-                        >
-                            카카오로 시작하기
-                        </Button>
+                            {/* Main Actions */}
+                            <Stack w="100%" gap={12}>
+                                {/* Kakao Button */}
+                                <Button
+                                    fullWidth
+                                    h={48}
+                                    bg="#FEE500"
+                                    c="#191919"
+                                    component="a"
+                                    href={`${process.env.NEXT_PUBLIC_API_URL}/oauth2/authorization/kakao?clientUrl=${process.env.NEXT_PUBLIC_CLIENT_URL}`}
+                                    leftSection={<KakaoIcon style={{ width: 18, height: 18, position: 'relative', top: 1 }} />}
+                                    radius="md"
+                                    styles={{
+                                        root: { border: 'none' },
+                                        label: { fontWeight: 600, fontSize: '15px' },
+                                        inner: { justifyContent: 'center' }
+                                    }}
+                                >
+                                    카카오로 시작하기
+                                </Button>
 
-                        {/* Google Button */}
-                        <Button
-                            fullWidth
-                            h={48}
-                            bg="#ffffff"
-                            c="#3c4043"
-                            component="a"
-                            href={`${process.env.NEXT_PUBLIC_API_URL}/oauth2/authorization/google?&clientUrl=${process.env.NEXT_PUBLIC_CLIENT_URL}`}
-                            leftSection={<GoogleIcon style={{ width: 20, height: 20, position: 'relative', top: 0 }} />}
-                            radius="md"
-                            variant="default"
-                            styles={{
-                                root: { borderColor: '#dadce0' },
-                                label: { fontWeight: 500, fontSize: '15px', fontFamily: 'Roboto, sans-serif' },
-                                inner: { justifyContent: 'center' }
-                            }}
-                        >
-                            Google 계정으로 시작하기
-                        </Button>
-                    </Stack>
+                                {/* Google Button */}
+                                <Button
+                                    fullWidth
+                                    h={48}
+                                    bg="#ffffff"
+                                    c="#3c4043"
+                                    component="a"
+                                    href={`${process.env.NEXT_PUBLIC_API_URL}/oauth2/authorization/google?&clientUrl=${process.env.NEXT_PUBLIC_CLIENT_URL}`}
+                                    leftSection={<GoogleIcon style={{ width: 20, height: 20, position: 'relative', top: 0 }} />}
+                                    radius="md"
+                                    variant="default"
+                                    styles={{
+                                        root: { borderColor: '#dadce0' },
+                                        label: { fontWeight: 500, fontSize: '15px', fontFamily: 'Roboto, sans-serif' },
+                                        inner: { justifyContent: 'center' }
+                                    }}
+                                >
+                                    Google 계정으로 시작하기
+                                </Button>
+                            </Stack>
 
-                    {/* Simplified Footer / Links */}
-                    <Group justify="center" gap="md">
-                        <Anchor c="gray.5" size="xs" onClick={openTerms} underline="hover">이용약관</Anchor>
-                        <Divider orientation="vertical" h={10} color="gray.3" />
-                        <Anchor c="gray.5" size="xs" onClick={openPrivacy} underline="hover">개인정보처리방침</Anchor>
-                        <Divider orientation="vertical" h={10} color="gray.3" />
-                        <Anchor c="gray.5" size="xs" onClick={openHelp} underline="hover">문의하기</Anchor>
-                    </Group>
+                            {/* Simplified Footer / Links */}
+                            <Group justify="center" gap="md">
+                                <Anchor c="gray.5" size="xs" onClick={openTerms} underline="hover">이용약관</Anchor>
+                                <Divider orientation="vertical" h={10} color="gray.3" />
+                                <Anchor c="gray.5" size="xs" onClick={openPrivacy} underline="hover">개인정보처리방침</Anchor>
+                                <Divider orientation="vertical" h={10} color="gray.3" />
+                                <Anchor c="gray.5" size="xs" onClick={openHelp} underline="hover">문의하기</Anchor>
+                            </Group>
 
-                    <Text c="gray.3" size="xs" ta="center">
-                        © 2026 CoreTime Inc.
-                    </Text>
-                </Stack>
-            </Container>
+                            <Text c="gray.3" size="xs" ta="center">
+                                © 2026 CoreTime Inc.
+                            </Text>
+                        </Stack>
+                    </Container>
+                )}
+            </Transition>
 
             {/* Modals */}
             <Modal opened={termsOpened} onClose={closeTerms} title="이용약관">

@@ -18,19 +18,13 @@ interface WeeklyCalendarProps {
     selectedInstructors: string[];
     selectedRooms: string[];
     onClassClick: (session: ClassSession) => void;
+    classes: ClassSession[]; // Added prop
 }
 
-export function WeeklyCalendar({ currentDate, selectedInstructors, selectedRooms, onClassClick }: WeeklyCalendarProps) {
-    const [classes, setClasses] = useState<ClassSession[]>([]);
-    // Get start of week (Monday)
-    const startOfWeek = dayjs(currentDate).startOf('week').add(1, 'day').toDate(); // dayjs week starts Sun by default
-
-    useEffect(() => {
-        // Fetch mock schedule
-        // In real app, this would be an API call with date range
-        const data = getWeeklySchedule(startOfWeek);
-        setClasses(data);
-    }, [currentDate]);
+export function WeeklyCalendar({ currentDate, selectedInstructors, selectedRooms, onClassClick, classes }: WeeklyCalendarProps) {
+    // Helper to position event
+    // No internal state for classes anymore
+    const startOfWeek = dayjs(currentDate).startOf('week').add(1, 'day').toDate();
 
     // Filter classes
     const filteredClasses = classes.filter(c => {

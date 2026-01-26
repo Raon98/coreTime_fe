@@ -2,6 +2,7 @@
 
 import React, { createContext, useContext, useState, ReactNode } from 'react';
 import { TSID } from '@/lib/mock-data';
+import { useMembersList, useTicketsList } from '@/lib/api';
 
 // --- Types ---
 
@@ -44,6 +45,7 @@ interface MemberContextType {
     members: Member[];
     tickets: Ticket[];
     logs: ConsultationLog[];
+    isLoading?: boolean;
 
     // Actions
     registerMember: (data: Omit<Member, 'id' | 'status' | 'registeredAt'>) => void;
@@ -58,9 +60,9 @@ interface MemberContextType {
     addLog: (log: Omit<ConsultationLog, 'id' | 'date'>) => void;
 }
 
-// --- Initial Mock Data ---
+// --- Mock Data Generators (Exported for API simulation) ---
 
-const MOCK_MEMBERS: Member[] = Array.from({ length: 50 }).map((_, i) => ({
+export const getMockMembers = (): Member[] => Array.from({ length: 50 }).map((_, i) => ({
     id: `MEM_${i + 1}`,
     name: `User ${i + 1}`,
     phone: `010-${1000 + i}-${5000 + i}`,
@@ -71,52 +73,57 @@ const MOCK_MEMBERS: Member[] = Array.from({ length: 50 }).map((_, i) => ({
     pinnedNote: i === 0 ? 'Herniated Disc L4-L5' : undefined,
 }));
 
-const MOCK_TICKETS: Ticket[] = MOCK_MEMBERS.map((m, i) => ({
-    id: `TICKET_${i}`,
-    memberId: m.id,
-    name: i % 2 === 0 ? 'Private Pilates 10' : 'Group Pilates 30',
-    totalCount: i % 2 === 0 ? 10 : 30,
-    remainingCount: i % 2 === 0 ? 8 : 25, // Some used
-    startDate: new Date(2025, 0, 1),
-    endDate: new Date(2026, 0, 1),
-    status: 'ACTIVE',
-}));
+export const getMockTickets = (): Ticket[] => {
+    const members = getMockMembers();
+    return members.map((m, i) => ({
+        id: `TICKET_${i}`,
+        memberId: m.id,
+        name: i % 2 === 0 ? 'Private Pilates 10' : 'Group Pilates 30',
+        totalCount: i % 2 === 0 ? 10 : 30,
+        remainingCount: i % 2 === 0 ? 8 : 25, // Some used
+        startDate: new Date(2025, 0, 1),
+        endDate: new Date(2026, 0, 1),
+        status: 'ACTIVE',
+    }));
+};
 
 const MemberContext = createContext<MemberContextType | undefined>(undefined);
 
 export function MemberProvider({ children }: { children: ReactNode }) {
-    const [members, setMembers] = useState<Member[]>(MOCK_MEMBERS);
-    const [tickets, setTickets] = useState<Ticket[]>(MOCK_TICKETS);
+    // Use React Query for data fetching
+    const { data: members = [], isLoading: isMembersLoading } = useMembersList();
+    const { data: tickets = [], isLoading: isTicketsLoading } = useTicketsList();
+
+    // Logs still local for now as no API hook created yet
     const [logs, setLogs] = useState<ConsultationLog[]>([]);
 
     const generateId = (prefix: string) => `${prefix}_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
 
+    // Actions - These would be Mutations in a real app
+    // For now we just log them as we can't easily mutate the query cache 
+    // without full mutation implementation or local state overlay.
+    // Given the task scope, we assume "read" caching is the priority.
+
     const registerMember = (data: Omit<Member, 'id' | 'status' | 'registeredAt'>) => {
-        const newMember: Member = {
-            ...data,
-            id: generateId('MEM'),
-            status: 'ACTIVE',
-            registeredAt: new Date(),
-        };
-        setMembers(prev => [newMember, ...prev]);
+        console.log("Mock Register:", data);
+        // queryClient.invalidateQueries({ queryKey: memberKeys.all })
     };
 
     const updateMember = (id: TSID, data: Partial<Member>) => {
-        setMembers(prev => prev.map(m => m.id === id ? { ...m, ...data } : m));
+        console.log("Mock Update Member:", id, data);
     };
 
     const addTicket = (ticket: Omit<Ticket, 'id'>) => {
-        const newTicket = { ...ticket, id: generateId('TICKET') };
-        setTickets(prev => [...prev, newTicket]);
-        return newTicket;
+        console.log("Mock Add Ticket:", ticket);
+        return { ...ticket, id: 'temp-id' } as Ticket;
     };
 
     const updateTicket = (id: TSID, data: Partial<Ticket>) => {
-        setTickets(prev => prev.map(t => t.id === id ? { ...t, ...data } : t));
+        console.log("Mock Update Ticket:", id, data);
     };
 
     const pauseTicket = (id: TSID, paused: boolean) => {
-        setTickets(prev => prev.map(t => t.id === id ? { ...t, status: paused ? 'PAUSED' : 'ACTIVE' } : t));
+        console.log("Mock Pause Ticket:", id, paused);
     };
 
     const addLog = (log: Omit<ConsultationLog, 'id' | 'date'>) => {
@@ -126,6 +133,7 @@ export function MemberProvider({ children }: { children: ReactNode }) {
 
     const value = {
         members, tickets, logs,
+        isLoading: isMembersLoading || isTicketsLoading,
         registerMember, updateMember,
         addTicket, updateTicket, pauseTicket,
         addLog

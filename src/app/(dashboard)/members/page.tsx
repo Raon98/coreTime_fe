@@ -19,11 +19,14 @@ import dayjs from 'dayjs';
 import MemberFormModal from '@/components/dashboard/members/MemberFormModal';
 import ConsultationLogList from '@/components/dashboard/members/ConsultationLogList';
 import AlimTalkModal from '@/components/dashboard/members/AlimTalkModal';
+import { MemberTableSkeleton } from '@/components/dashboard/members/MemberSkeleton';
 
 export default function MemberListPage() {
-    const { members, tickets } = useMembers();
+    const { members, tickets, isLoading } = useMembers(); // Added isLoading
     const [search, setSearch] = useState('');
     const [statusFilter, setStatusFilter] = useState<string[]>([]);
+
+    // ... items ...
 
     // UI States
     const [selectedMember, setSelectedMember] = useState<Member | null>(null);
@@ -48,6 +51,8 @@ export default function MemberListPage() {
             return matchesSearch && matchesStatus;
         });
     }, [members, search, statusFilter]);
+
+    // ... handlers ...
 
     const handleRowClick = (member: Member) => {
         setSelectedMember(member);
@@ -108,87 +113,91 @@ export default function MemberListPage() {
             </Group>
 
             {/* Table */}
-            <Card withBorder radius="md" p={0}>
-                <Table highlightOnHover>
-                    <Table.Thead bg="gray.0">
-                        <Table.Tr>
-                            <Table.Th>회원명</Table.Th>
-                            <Table.Th>성별</Table.Th>
-                            <Table.Th>상태</Table.Th>
-                            <Table.Th>연락처</Table.Th>
-                            <Table.Th>보유 수강권</Table.Th>
-                            <Table.Th>최근 출석</Table.Th>
-                            <Table.Th style={{ width: 50 }}></Table.Th>
-                        </Table.Tr>
-                    </Table.Thead>
-                    <Table.Tbody>
-                        {filteredMembers.length > 0 ? filteredMembers.map((member) => {
-                            // Find active ticket (simplified: first active)
-                            const memberTicket = tickets.find(t => t.memberId === member.id && t.status === 'ACTIVE');
+            {isLoading ? (
+                <MemberTableSkeleton />
+            ) : (
+                <Card withBorder radius="md" p={0}>
+                    <Table highlightOnHover>
+                        <Table.Thead bg="gray.0">
+                            <Table.Tr>
+                                <Table.Th>회원명</Table.Th>
+                                <Table.Th>성별</Table.Th>
+                                <Table.Th>상태</Table.Th>
+                                <Table.Th>연락처</Table.Th>
+                                <Table.Th>보유 수강권</Table.Th>
+                                <Table.Th>최근 출석</Table.Th>
+                                <Table.Th style={{ width: 50 }}></Table.Th>
+                            </Table.Tr>
+                        </Table.Thead>
+                        <Table.Tbody>
+                            {filteredMembers.length > 0 ? filteredMembers.map((member) => {
+                                // Find active ticket (simplified: first active)
+                                const memberTicket = tickets.find(t => t.memberId === member.id && t.status === 'ACTIVE');
 
-                            return (
-                                <Table.Tr key={member.id} style={{ cursor: 'pointer' }} onClick={() => handleRowClick(member)}>
-                                    <Table.Td>
-                                        <Group gap="sm">
-                                            <Avatar size="sm" radius="xl" color="indigo" name={member.name} />
-                                            <Text size="sm" fw={500}>{member.name}</Text>
-                                        </Group>
-                                    </Table.Td>
-                                    <Table.Td>
-                                        <Text size="sm">{member.gender === 'MALE' ? '남성' : '여성'}</Text>
-                                    </Table.Td>
-                                    <Table.Td>
-                                        <Badge
-                                            color={member.status === 'ACTIVE' ? 'green' : member.status === 'DORMANT' ? 'gray' : 'red'}
-                                            variant="light"
-                                        >
-                                            {member.status}
-                                        </Badge>
-                                    </Table.Td>
-                                    <Table.Td>{member.phone}</Table.Td>
-                                    <Table.Td>
-                                        {memberTicket ? (
-                                            <Text size="sm">{memberTicket.name} ({memberTicket.remainingCount}회)</Text>
-                                        ) : (
-                                            <Text size="sm" c="dimmed">-</Text>
-                                        )}
-                                    </Table.Td>
-                                    <Table.Td>
-                                        {member.lastAttendanceAt ? dayjs(member.lastAttendanceAt).format('YY.MM.DD') : '-'}
-                                    </Table.Td>
-                                    <Table.Td onClick={(e) => e.stopPropagation()}>
-                                        <Menu position="bottom-end" withinPortal>
-                                            <Menu.Target>
-                                                <ActionIcon variant="subtle" color="gray"><IconDotsVertical size={16} /></ActionIcon>
-                                            </Menu.Target>
-                                            <Menu.Dropdown>
-                                                <Menu.Item
-                                                    leftSection={<IconDeviceMobileMessage size={14} />}
-                                                    onClick={() => handleSendAlimTalk(member)}
-                                                >
-                                                    알림톡 발송
-                                                </Menu.Item>
-                                                <Menu.Item
-                                                    leftSection={<IconEdit size={14} />}
-                                                    onClick={() => handleEditMember(member)}
-                                                >
-                                                    정보 수정
-                                                </Menu.Item>
-                                            </Menu.Dropdown>
-                                        </Menu>
+                                return (
+                                    <Table.Tr key={member.id} style={{ cursor: 'pointer' }} onClick={() => handleRowClick(member)}>
+                                        <Table.Td>
+                                            <Group gap="sm">
+                                                <Avatar size="sm" radius="xl" color="indigo" name={member.name} />
+                                                <Text size="sm" fw={500}>{member.name}</Text>
+                                            </Group>
+                                        </Table.Td>
+                                        <Table.Td>
+                                            <Text size="sm">{member.gender === 'MALE' ? '남성' : '여성'}</Text>
+                                        </Table.Td>
+                                        <Table.Td>
+                                            <Badge
+                                                color={member.status === 'ACTIVE' ? 'green' : member.status === 'DORMANT' ? 'gray' : 'red'}
+                                                variant="light"
+                                            >
+                                                {member.status}
+                                            </Badge>
+                                        </Table.Td>
+                                        <Table.Td>{member.phone}</Table.Td>
+                                        <Table.Td>
+                                            {memberTicket ? (
+                                                <Text size="sm">{memberTicket.name} ({memberTicket.remainingCount}회)</Text>
+                                            ) : (
+                                                <Text size="sm" c="dimmed">-</Text>
+                                            )}
+                                        </Table.Td>
+                                        <Table.Td>
+                                            {member.lastAttendanceAt ? dayjs(member.lastAttendanceAt).format('YY.MM.DD') : '-'}
+                                        </Table.Td>
+                                        <Table.Td onClick={(e) => e.stopPropagation()}>
+                                            <Menu position="bottom-end" withinPortal>
+                                                <Menu.Target>
+                                                    <ActionIcon variant="subtle" color="gray"><IconDotsVertical size={16} /></ActionIcon>
+                                                </Menu.Target>
+                                                <Menu.Dropdown>
+                                                    <Menu.Item
+                                                        leftSection={<IconDeviceMobileMessage size={14} />}
+                                                        onClick={() => handleSendAlimTalk(member)}
+                                                    >
+                                                        알림톡 발송
+                                                    </Menu.Item>
+                                                    <Menu.Item
+                                                        leftSection={<IconEdit size={14} />}
+                                                        onClick={() => handleEditMember(member)}
+                                                    >
+                                                        정보 수정
+                                                    </Menu.Item>
+                                                </Menu.Dropdown>
+                                            </Menu>
+                                        </Table.Td>
+                                    </Table.Tr>
+                                );
+                            }) : (
+                                <Table.Tr>
+                                    <Table.Td colSpan={7}>
+                                        <Text ta="center" c="dimmed" py="xl">검색 결과가 없습니다.</Text>
                                     </Table.Td>
                                 </Table.Tr>
-                            );
-                        }) : (
-                            <Table.Tr>
-                                <Table.Td colSpan={7}>
-                                    <Text ta="center" c="dimmed" py="xl">검색 결과가 없습니다.</Text>
-                                </Table.Td>
-                            </Table.Tr>
-                        )}
-                    </Table.Tbody>
-                </Table>
-            </Card>
+                            )}
+                        </Table.Tbody>
+                    </Table>
+                </Card>
+            )}
 
             {/* Member Form Modal (Register/Edit) */}
             <MemberFormModal

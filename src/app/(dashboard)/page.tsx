@@ -8,11 +8,14 @@ import { RecentActivity } from '@/components/dashboard/RecentActivity';
 import { CenterAlerts } from '@/components/dashboard/CenterAlerts';
 import {
     UserRole,
-    getMockStats,
-    getPendingInstructors,
-    getRecentActivity,
-    getCenterAlerts
 } from '@/lib/mock-data';
+import {
+    useDashboardStats,
+    useRecentActivity,
+    useCenterAlerts,
+    usePendingInstructors
+} from '@/lib/api';
+import { DashboardSkeleton } from '@/components/dashboard/DashboardSkeleton';
 
 import { useAuth } from '@/context/AuthContext';
 import { LoadingOverlay, Button } from '@mantine/core';
@@ -20,7 +23,7 @@ import { useSearchParams, useRouter } from 'next/navigation';
 import { Suspense } from 'react';
 
 function DashboardContent() {
-    const { user, isLoading, logout } = useAuth();
+    const { user, isLoading: isAuthLoading, logout } = useAuth();
     const [role, setRole] = useState<UserRole>('OWNER');
 
     useEffect(() => {
@@ -31,18 +34,21 @@ function DashboardContent() {
 
     // Redirect to login if no organization (incomplete registration)
     useEffect(() => {
-        if (!isLoading && user && !user.organizationId) {
+        if (!isAuthLoading && user && !user.organizationId) {
             logout(); // This handles signOut and redirect to /login
         }
-    }, [user, isLoading, logout]);
+    }, [user, isAuthLoading, logout]);
 
-    // Load mock data
-    const stats = getMockStats();
-    const pendingInstructors = getPendingInstructors();
-    const activities = getRecentActivity(role);
-    const alerts = getCenterAlerts();
+    // React Query Hooks
+    const { data: stats, isLoading: isStatsLoading } = useDashboardStats(role as any, { enabled: !!user });
+    const { data: pendingInstructors, isLoading: isInstructorsLoading } = usePendingInstructors({ enabled: !!user && role === 'OWNER' });
+    const { data: activities, isLoading: isActivityLoading } = useRecentActivity(role as any, { enabled: !!user });
+    const { data: alerts, isLoading: isAlertsLoading } = useCenterAlerts({ enabled: !!user });
 
-    if (isLoading) return <LoadingOverlay visible />;
+    // Determine global loading state
+    const isDashboardLoading = isStatsLoading || isActivityLoading || isAlertsLoading;
+
+    if (isAuthLoading) return <LoadingOverlay visible />;
 
     if (!user) {
         return (
@@ -57,8 +63,15 @@ function DashboardContent() {
 
     // Safety check if user is logged in but has no role or organization
     if (!user.organizationId || !user.role) {
-        // Will be handled by useEffect redirect, show blank or loading
         return <LoadingOverlay visible />;
+    }
+
+    if (isDashboardLoading) {
+        return (
+            <Container fluid p="md">
+                <DashboardSkeleton />
+            </Container>
+        );
     }
 
     return (
@@ -67,7 +80,7 @@ function DashboardContent() {
                 <div>
                     <Title order={2}>대시보드</Title>
                     <Text c="dimmed" size="sm">
-                        반갑습니다, {role === 'OWNER' ? '맹성철 원장님' : '김필라 강사님'}
+                        반갑습니다, {user.name} {role === 'OWNER' ? '원장님' : '강사님'}
                     </Text>
                 </div>
                 <Group>
@@ -85,7 +98,7 @@ function DashboardContent() {
 
             {/* 1. Top Stats Grid */}
             <Box mb="lg">
-                <StatsGrid role={role} data={stats} />
+                {stats && <StatsGrid role={role} data={stats} />}
             </Box>
 
             {/* 2. Main Content Grid */}
@@ -94,7 +107,7 @@ function DashboardContent() {
                 {/* Left/Main Column */}
                 <Grid.Col span={{ base: 12, md: 8 }}>
                     {/* Activity Log takes the main stage now */}
-                    <RecentActivity activities={activities} />
+                    {activities && <RecentActivity activities={activities} />}
                 </Grid.Col>
 
                 {/* Right/Side Column */}
@@ -102,11 +115,11 @@ function DashboardContent() {
                     <Stack gap="lg">
                         {role === 'OWNER' ? (
                             <>
-                                <InstructorApprovalList instructors={pendingInstructors} />
-                                <CenterAlerts alerts={alerts} />
+                                {pendingInstructors && <InstructorApprovalList instructors={pendingInstructors} />}
+                                {alerts && <CenterAlerts alerts={alerts} />}
                             </>
                         ) : (
-                            <CenterAlerts alerts={alerts} />
+                            alerts && <CenterAlerts alerts={alerts} />
                         )}
                     </Stack>
                 </Grid.Col>

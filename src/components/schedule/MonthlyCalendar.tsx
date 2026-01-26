@@ -10,26 +10,14 @@ interface MonthlyCalendarProps {
     selectedInstructors: string[];
     selectedRooms: string[];
     onClassClick: (session: ClassSession) => void;
+    classes: ClassSession[];
 }
 
-export function MonthlyCalendar({ currentDate, selectedInstructors, selectedRooms, onClassClick }: MonthlyCalendarProps) {
-    const [classes, setClasses] = useState<ClassSession[]>([]);
-
+export function MonthlyCalendar({ currentDate, selectedInstructors, selectedRooms, onClassClick, classes }: MonthlyCalendarProps) {
     // We will just fetch mock data around current date
     // For specific monthly logic, we need to generate dates for the 6 weeks covering the month
     const startOfMonth = dayjs(currentDate).startOf('month');
     const startOfCalendar = startOfMonth.startOf('week').add(1, 'day'); // Mon
-    const endOfCalendar = startOfCalendar.add(41, 'day'); // 6 weeks * 7 days = 42 days total
-
-    useEffect(() => {
-        // Mock: fetch multiple weeks or just generate enough mock data
-        // We'll reuse getWeeklySchedule for 5 weeks around the start
-        let all: ClassSession[] = [];
-        for (let i = 0; i < 5; i++) {
-            all = [...all, ...getWeeklySchedule(startOfCalendar.add(i, 'week').toDate())];
-        }
-        setClasses(all);
-    }, [currentDate]);
 
     // Filter
     const filteredClasses = classes.filter(c => {

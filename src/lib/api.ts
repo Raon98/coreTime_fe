@@ -351,3 +351,213 @@ export const authApi = {
 };
 
 export default api;
+
+// --- React Query Hooks ---
+
+import { useQuery, UseQueryOptions } from '@tanstack/react-query';
+import { getMockStats, getRecentActivity, getCenterAlerts } from './mock-data'; // Temporary Import
+
+export const queryKeys = {
+    userProfile: ['user', 'profile'] as const,
+    myOrganizations: ['organizations', 'my'] as const,
+    organization: (id: number | string) => ['organization', id] as const,
+    dashboard: {
+        stats: (role: string) => ['dashboard', 'stats', role] as const,
+        activity: (role: string) => ['dashboard', 'activity', role] as const,
+        alerts: ['dashboard', 'alerts'] as const,
+    },
+    instructors: {
+        pending: ['instructors', 'pending'] as const,
+    }
+};
+
+/**
+ * Hook to fetch current user profile with automatic caching
+ */
+export function useUserProfile(options?: Omit<UseQueryOptions<MeResult, Error>, 'queryKey' | 'queryFn'>) {
+    return useQuery({
+        queryKey: queryKeys.userProfile,
+        queryFn: () => authApi.getMe(),
+        staleTime: 5 * 60 * 1000, // 5 minutes
+        gcTime: 10 * 60 * 1000, // 10 minutes
+        retry: 1,
+        ...options,
+    });
+}
+
+/**
+ * Hook to fetch user's organizations with automatic caching
+ */
+export function useMyOrganizations(options?: Omit<UseQueryOptions<OrganizationResult[], Error>, 'queryKey' | 'queryFn'>) {
+    return useQuery({
+        queryKey: queryKeys.myOrganizations,
+        queryFn: () => authApi.getMyOrganizations(),
+        staleTime: 10 * 60 * 1000, // 10 minutes (organizations change less frequently)
+        gcTime: 30 * 60 * 1000, // 30 minutes
+        retry: 1,
+        ...options,
+    });
+}
+
+// --- Dashboard Hooks ---
+
+export function useDashboardStats(role: 'OWNER' | 'INSTRUCTOR', options?: Omit<UseQueryOptions<any, Error>, 'queryKey' | 'queryFn'>) {
+    return useQuery({
+        queryKey: queryKeys.dashboard.stats(role),
+        queryFn: async () => {
+            // Simulate API Network Delay
+            await new Promise(resolve => setTimeout(resolve, 600));
+            // In future: return authApi.getDashboardStats(role);
+            return getMockStats();
+        },
+        staleTime: 2 * 60 * 1000, // 2 minutes
+        ...options
+    });
+}
+
+export function useRecentActivity(role: 'OWNER' | 'INSTRUCTOR', options?: Omit<UseQueryOptions<any[], Error>, 'queryKey' | 'queryFn'>) {
+    return useQuery({
+        queryKey: queryKeys.dashboard.activity(role),
+        queryFn: async () => {
+            await new Promise(resolve => setTimeout(resolve, 800));
+            return getRecentActivity(role);
+        },
+        staleTime: 1 * 60 * 1000, // 1 minute
+        ...options
+    });
+}
+
+export function useCenterAlerts(options?: Omit<UseQueryOptions<any[], Error>, 'queryKey' | 'queryFn'>) {
+    return useQuery({
+        queryKey: queryKeys.dashboard.alerts,
+        queryFn: async () => {
+            await new Promise(resolve => setTimeout(resolve, 500));
+            return getCenterAlerts();
+        },
+        staleTime: 5 * 60 * 1000,
+        ...options
+    });
+}
+
+export function usePendingInstructors(options?: Omit<UseQueryOptions<InstructorDto[], Error>, 'queryKey' | 'queryFn'>) {
+    return useQuery({
+        queryKey: queryKeys.instructors.pending,
+        queryFn: () => authApi.getPendingInstructors(),
+        staleTime: 2 * 60 * 1000,
+        ...options
+    });
+}
+
+// --- Member Hooks ---
+
+// Temporary imports until backend connected
+import { getMockMembers, getMockTickets, Member, Ticket } from '@/context/MemberContext';
+
+// Temporary API functions to simulate fetch
+export const memberApi = {
+    getMembers: async (): Promise<Member[]> => {
+        await new Promise(resolve => setTimeout(resolve, 600));
+        // We need to move getMockMembers implementation out of Context or duplicate usage logic
+        // For now, let's assume it returns the array
+        return getMockMembers();
+    },
+    getTickets: async (): Promise<Ticket[]> => {
+        await new Promise(resolve => setTimeout(resolve, 600));
+        return getMockTickets();
+    }
+};
+
+export const memberKeys = {
+    all: ['members'] as const,
+    detail: (id: string | number) => ['members', id] as const,
+    tickets: ['tickets'] as const,
+    memberTickets: (memberId: string | number) => ['tickets', 'member', memberId] as const,
+};
+
+export function useMembersList(options?: Omit<UseQueryOptions<Member[], Error>, 'queryKey' | 'queryFn'>) {
+    return useQuery({
+        queryKey: memberKeys.all,
+        queryFn: memberApi.getMembers,
+        staleTime: 5 * 60 * 1000,
+        ...options
+    });
+}
+
+export function useTicketsList(options?: Omit<UseQueryOptions<Ticket[], Error>, 'queryKey' | 'queryFn'>) {
+    return useQuery({
+        queryKey: memberKeys.tickets,
+        queryFn: memberApi.getTickets,
+        staleTime: 5 * 60 * 1000,
+        ...options
+    });
+}
+
+// --- Schedule Hooks ---
+
+// Temporary imports
+import { getWeeklySchedule, getReservations, ClassSession, Reservation, getRooms, getInstructorsWithColors } from '@/lib/mock-data';
+
+export const scheduleApi = {
+    getWeeklySchedule: async (date: Date): Promise<ClassSession[]> => {
+        await new Promise(resolve => setTimeout(resolve, 800)); // Simulate delay
+        return getWeeklySchedule(date);
+    },
+    getReservations: async (): Promise<Reservation[]> => {
+        await new Promise(resolve => setTimeout(resolve, 600));
+        return getReservations();
+    },
+    getRooms: async () => {
+        await new Promise(resolve => setTimeout(resolve, 400));
+        return getRooms();
+    },
+    getInstructors: async () => {
+        await new Promise(resolve => setTimeout(resolve, 400));
+        return getInstructorsWithColors();
+    }
+};
+
+export const scheduleKeys = {
+    all: ['schedule'] as const,
+    week: (date: string) => ['schedule', 'week', date] as const,
+    reservations: ['reservations'] as const,
+    rooms: ['rooms'] as const,
+    instructors: ['schedule', 'instructors'] as const,
+};
+
+export function useWeeklySchedule(date: Date, options?: Omit<UseQueryOptions<ClassSession[], Error>, 'queryKey' | 'queryFn'>) {
+    // Round to start of week effectively in cache key
+    const dateKey = date.toISOString().split('T')[0];
+    return useQuery({
+        queryKey: scheduleKeys.week(dateKey),
+        queryFn: () => scheduleApi.getWeeklySchedule(date),
+        staleTime: 5 * 60 * 1000,
+        ...options
+    });
+}
+
+export function useReservations(options?: Omit<UseQueryOptions<Reservation[], Error>, 'queryKey' | 'queryFn'>) {
+    return useQuery({
+        queryKey: scheduleKeys.reservations,
+        queryFn: scheduleApi.getReservations,
+        staleTime: 1 * 60 * 1000, // Reservations change often
+        ...options
+    });
+}
+
+export function useRooms(options?: Omit<UseQueryOptions<any[], Error>, 'queryKey' | 'queryFn'>) {
+    return useQuery({
+        queryKey: scheduleKeys.rooms,
+        queryFn: scheduleApi.getRooms,
+        staleTime: 60 * 60 * 1000, // Rooms rarely change
+        ...options
+    });
+}
+
+export function useScheduleInstructors(options?: Omit<UseQueryOptions<any[], Error>, 'queryKey' | 'queryFn'>) {
+    return useQuery({
+        queryKey: scheduleKeys.instructors,
+        queryFn: scheduleApi.getInstructors,
+        staleTime: 10 * 60 * 1000,
+        ...options
+    });
+}

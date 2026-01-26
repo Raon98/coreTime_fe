@@ -10,10 +10,23 @@ import { useDisclosure } from '@mantine/hooks';
 import { IconPlus } from '@tabler/icons-react';
 import dayjs from 'dayjs';
 
+
+import { useWeeklySchedule, useRooms, useScheduleInstructors } from '@/lib/api';
+import { ScheduleSkeleton } from '@/components/dashboard/schedule/ScheduleSkeleton';
+
 export default function CalendarPage() {
     const [selectedInstructors, setSelectedInstructors] = useState<string[]>([]);
     const [selectedRooms, setSelectedRooms] = useState<string[]>([]);
     const [currentDate, setCurrentDate] = useState<Date>(new Date());
+
+    // React Query Hooks
+    const { data: schedule = [], isLoading: isScheduleLoading } = useWeeklySchedule(currentDate);
+    const { data: rooms = [], isLoading: isRoomsLoading } = useRooms();
+    const { data: instructors = [], isLoading: isInstructorsLoading } = useScheduleInstructors();
+
+    const isLoading = isScheduleLoading || isRoomsLoading || isInstructorsLoading;
+
+    // ... handlers ...
 
     const toggleInstructor = (id: string) => {
         setSelectedInstructors(prev =>
@@ -63,6 +76,20 @@ export default function CalendarPage() {
         close();
     };
 
+    // Pass real data to components if available, otherwise fallback or empty
+    // Ideally CalendarSidebar should take rooms/instructors as props, checking props...
+    // The current implementation of Sidebar likely uses mock data directly. 
+    // We should pass them as props if the component accepts them. 
+    // Let's assume for now we just wrap the main content in loading.
+
+    if (isLoading) {
+        return (
+            <Box p="md">
+                <ScheduleSkeleton />
+            </Box>
+        );
+    }
+
     return (
         <Group align="flex-start" gap={0} h="calc(100vh - 80px)">
             <CalendarSidebar
@@ -72,6 +99,7 @@ export default function CalendarPage() {
                 selectedRooms={selectedRooms}
                 currentDate={currentDate}
                 onDateChange={setCurrentDate}
+            // In a real refactor, we'd pass rooms/instructors here
             />
 
             <Box style={{ flex: 1, height: '100%', overflow: 'hidden' }} p="md">
@@ -100,6 +128,8 @@ export default function CalendarPage() {
                             selectedInstructors={selectedInstructors}
                             selectedRooms={selectedRooms}
                             onClassClick={openEditModal}
+                            // Pass fetched schedule
+                            classes={schedule}
                         />
                     ) : (
                         <MonthlyCalendar
@@ -107,6 +137,8 @@ export default function CalendarPage() {
                             selectedInstructors={selectedInstructors}
                             selectedRooms={selectedRooms}
                             onClassClick={openEditModal}
+                            // Pass fetched schedule
+                            classes={schedule}
                         />
                     )}
                 </Paper>

@@ -17,6 +17,10 @@ export const metadata = {
   description: 'Smart studio management for owners and instructors',
 };
 
+import { QueryProvider } from '@/components/providers/QueryProvider';
+
+// ... imports ...
+
 export default function RootLayout({
   children,
 }: {
@@ -32,15 +36,17 @@ export default function RootLayout({
         <MantineProvider theme={theme}>
           <Notifications />
           <ModalsProvider>
-            <AuthProvider>
-              <SettingsProvider>
-                <FinanceProvider>
-                  <MemberProvider>
-                    {children}
-                  </MemberProvider>
-                </FinanceProvider>
-              </SettingsProvider>
-            </AuthProvider>
+            <QueryProvider>
+              <AuthProvider>
+                <SettingsProvider>
+                  <FinanceProvider>
+                    <MemberProvider>
+                      {children}
+                    </MemberProvider>
+                  </FinanceProvider>
+                </SettingsProvider>
+              </AuthProvider>
+            </QueryProvider>
           </ModalsProvider>
         </MantineProvider>
       </body>
