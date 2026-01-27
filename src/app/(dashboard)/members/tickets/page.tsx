@@ -391,7 +391,7 @@ export default function TicketManagementPage() {
             <Modal opened={registerOpened} onClose={closeRegister} title={
                 <Group gap="xs">
                     <IconTicket size={20} color="var(--mantine-color-blue-6)" />
-                    <Text fw={700}>수강권 등록 (Payment-Linked)</Text>
+                    <Text fw={700}>수강권 등록</Text>
                 </Group>
             } size="lg">
                 <Stack>

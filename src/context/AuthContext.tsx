@@ -127,9 +127,10 @@ function AuthContent({ children }: { children: ReactNode }) {
                 signupToken: session.user.signupToken
             });
 
-            // Load complete profile from API if user is authenticated (has ID/Email)
-            // We fetch profile even if role is missing in session, to "self-heal" and get the latest role
-            if (session.user.id && loadedSessionId.current !== sessionId) {
+            // CRITICAL: Only load complete profile from API if user has an actual JWT access token
+            // This prevents /me API calls on login page or during OAuth flows where session exists
+            // but user hasn't actually authenticated yet
+            if (session.user.id && session.user.accessToken && loadedSessionId.current !== sessionId) {
                 loadProfileInternal(sessionId);
             }
         } else {
