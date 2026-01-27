@@ -361,8 +361,8 @@ function PaymentModal({ opened, onClose, products, onProcess, isLoading }: {
     const handleProcess = () => {
         if (selectedMemberId && selectedProductId && amount !== '') {
             onProcess({
-                membershipId: parseInt(selectedMemberId),
-                productId: parseInt(selectedProductId),
+                membershipId: selectedMemberId,
+                productId: selectedProductId,
                 amount: Number(amount),
                 method: method,
             });
