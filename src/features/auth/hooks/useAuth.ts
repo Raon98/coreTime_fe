@@ -6,6 +6,7 @@ import { useAuthStore } from "../store/auth.store";
 import { JoinOrganizationCommand, RegisterOrganizationCommand, SignUpCommand } from "../api/auth.dto";
 import { User, UserRole } from "../model/types";
 import { useEffect } from "react";
+import { clearSessionCache } from "@/lib/api";
 
 // Helper to normalize role
 const normalizeRole = (role: string | null | undefined): UserRole => {
@@ -114,7 +115,20 @@ export function useAuth() {
     };
 
     const joinInstructorOrganization = async (data: JoinOrganizationCommand) => {
-        await authApi.joinOrganization(data);
+        const result = await authApi.joinOrganization(data);
+        if (result?.status === "ACTIVE") {
+            await signIn("credentials", {
+                redirect: false,
+                accessToken: result.accessToken,
+                refreshToken: result.refreshToken,
+                role: result.identity,
+                organizationId: result.organizationId,
+                accountId: result.accountId
+            });
+
+            clearSessionCache();
+        }
+
         await queryClient.invalidateQueries({ queryKey: ['me'] });
     };
 
