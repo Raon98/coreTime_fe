@@ -191,6 +191,58 @@ export interface CreatePaymentCommand {
 export interface RefundResult {
     status: PaymentStatus;
 }
+
+// Finance Statistics Types
+export interface RevenueSummary {
+    totalSales: number;
+    refundAmount: number;
+    netSales: number;
+    unpaidAmount: number;
+    growthRate: number;
+    topPaymentMethod: {
+        method: PaymentMethod;
+        percentage: number;
+        amount: number;
+    };
+}
+
+export interface TrendData {
+    date: string; // YYYY-MM-DD
+    revenue: number;
+    refund: number;
+    unpaid: number;
+}
+
+export interface PaymentMethodStats {
+    method: PaymentMethod;
+    label: string;
+    amount: number;
+    percentage: number;
+    color: string;
+}
+
+export interface Pagination {
+    total: number;
+    page: number;
+    limit: number;
+    totalPages: number;
+}
+
+export interface TransactionItem {
+    id: string; // TSID or Long (Stringified)
+    paidAt: string;
+    productName: string;
+    memberName: string;
+    method: PaymentMethod;
+    amount: number;
+    status: PaymentStatus;
+}
+
+export interface TransactionList {
+    list: TransactionItem[];
+    pagination: Pagination;
+}
+
 // --- API Client ---
 
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL + "/api/v1" || 'http://localhost:8080/api/v1';
@@ -623,6 +675,27 @@ export const memberTicketApi = {
     },
 };
 
+// Finance Statistics API
+export const financeApi = {
+    getSummary: async (params: { startDate: string; endDate: string }) => {
+        const response = await api.get<ApiResponse<RevenueSummary>>('/finance/stats/summary', { params });
+        return response.data.data;
+    },
+    getTrend: async (params: { startDate: string; endDate: string }) => {
+        const response = await api.get<ApiResponse<TrendData[]>>('/finance/stats/trend', { params });
+        return response.data.data;
+    },
+    getPaymentMethods: async (params: { startDate: string; endDate: string }) => {
+        const response = await api.get<ApiResponse<PaymentMethodStats[]>>('/finance/stats/payment-methods', { params });
+        return response.data.data;
+    },
+    getTransactions: async (params: { startDate: string; endDate: string; page?: number; limit?: number; search?: string }) => {
+        const response = await api.get<ApiResponse<TransactionList>>('/finance/stats/transactions', { params });
+        return response.data.data;
+    }
+};
+
+
 export default api;
 
 // --- React Query Hooks ---
@@ -769,9 +842,51 @@ export function useAvailablePayments(membershipId: string, options?: Omit<UseQue
         queryFn: () => paymentApi.getAvailable(membershipId),
         enabled: !!membershipId, // Only fetch if membershipId is present
         staleTime: 0, // Always fresh for this critical UI
-        ...options
+        ...options,
     });
 }
+
+// Stats Hooks
+export function useFinanceStatsSummary(params: { startDate: string; endDate: string }, options?: Omit<UseQueryOptions<RevenueSummary, Error>, 'queryKey' | 'queryFn'>) {
+    return useQuery({
+        queryKey: ['finance', 'stats', 'summary', params],
+        queryFn: () => financeApi.getSummary(params),
+        enabled: !!params.startDate && !!params.endDate,
+        staleTime: 5 * 60 * 1000,
+        ...options,
+    });
+}
+
+export function useFinanceStatsTrend(params: { startDate: string; endDate: string }, options?: Omit<UseQueryOptions<TrendData[], Error>, 'queryKey' | 'queryFn'>) {
+    return useQuery({
+        queryKey: ['finance', 'stats', 'trend', params],
+        queryFn: () => financeApi.getTrend(params),
+        enabled: !!params.startDate && !!params.endDate,
+        staleTime: 5 * 60 * 1000,
+        ...options,
+    });
+}
+
+export function useFinanceStatsPaymentMethods(params: { startDate: string; endDate: string }, options?: Omit<UseQueryOptions<PaymentMethodStats[], Error>, 'queryKey' | 'queryFn'>) {
+    return useQuery({
+        queryKey: ['finance', 'stats', 'payment-methods', params],
+        queryFn: () => financeApi.getPaymentMethods(params),
+        enabled: !!params.startDate && !!params.endDate,
+        staleTime: 5 * 60 * 1000,
+        ...options,
+    });
+}
+
+export function useFinanceStatsTransactions(params: { startDate: string; endDate: string; page?: number; limit?: number; search?: string }, options?: Omit<UseQueryOptions<TransactionList, Error>, 'queryKey' | 'queryFn'>) {
+    return useQuery({
+        queryKey: ['finance', 'stats', 'transactions', params],
+        queryFn: () => financeApi.getTransactions(params),
+        enabled: !!params.startDate && !!params.endDate,
+        staleTime: 1 * 60 * 1000,
+        ...options,
+    });
+}
+
 
 // --- Member Hooks ---
 

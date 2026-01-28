@@ -2,52 +2,78 @@
 
 import {
     Title, Text, Container, Grid, Paper, Group,
-    ThemeIcon, Table, Badge, Stack, Divider, SegmentedControl, Avatar
+    ThemeIcon, Table, Badge, Stack, SegmentedControl, Skeleton, Center, Pagination
 } from '@mantine/core';
 import {
     IconTrendingUp, IconTrendingDown, IconCreditCard,
-    IconReceipt, IconCalendar, IconArrowUpRight, IconArrowDownRight, IconCoin
+    IconCalendar, IconArrowUpRight, IconArrowDownRight, IconCoin, IconAlertCircle
 } from '@tabler/icons-react';
-import { useFinance } from '@/context/FinanceContext';
 import { AreaChart, DonutChart } from '@mantine/charts';
 import { MonthPickerInput } from '@mantine/dates';
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import dayjs from 'dayjs';
+import {
+    useFinanceStatsSummary,
+    useFinanceStatsTrend,
+    useFinanceStatsPaymentMethods,
+    useFinanceStatsTransactions,
+    PaymentMethod
+} from '@/lib/api';
+
+const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
+    CARD: '신용카드',
+    TRANSFER: '계좌이체',
+    CASH: '현금'
+};
+
+const PAYMENT_METHOD_COLORS: Record<PaymentMethod, string> = {
+    CARD: 'indigo.6',
+    TRANSFER: 'teal.6',
+    CASH: 'gray.6'
+};
 
 export default function FinanceStatsPage() {
-    const { transactions } = useFinance();
     const [dateValue, setDateValue] = useState<Date | null>(new Date());
-    const [period, setPeriod] = useState('daily');
+    const [page, setPage] = useState(1);
 
-    // --- Mock Data Generation for Visuals (Aggregate from real tx if possible, but mocking for demo stability) ---
-    // In a real scenario, these would come from the API based on the selected month.
+    // Calculate Date Range
+    const dateRange = useMemo(() => {
+        if (!dateValue) return { startDate: '', endDate: '' };
+        return {
+            startDate: dayjs(dateValue).startOf('month').format('YYYY-MM-DD'),
+            endDate: dayjs(dateValue).endOf('month').format('YYYY-MM-DD')
+        };
+    }, [dateValue]);
 
-    // 1. Summary Metrics
-    const totalSales = transactions.reduce((sum, tx) => sum + tx.amount, 0);
-    const refundAmount = 0; // Mock refund
-    const netSales = totalSales - refundAmount;
-    const previousMonthSales = totalSales * 0.9; // Mock: 10% growth
-    const growthRate = ((totalSales - previousMonthSales) / previousMonthSales) * 100;
+    // Queries
+    const { data: summary, isLoading: isSummaryLoading } = useFinanceStatsSummary(dateRange);
+    const { data: trend, isLoading: isTrendLoading } = useFinanceStatsTrend(dateRange);
+    const { data: paymentMethods, isLoading: isPaymentLoading } = useFinanceStatsPaymentMethods(dateRange);
+    const { data: transactionsData, isLoading: isTxLoading } = useFinanceStatsTransactions({
+        ...dateRange,
+        page,
+        limit: 10
+    });
 
-    // 2. Trend Data (Area Chart)
-    // Generating dummy daily data for the selected month
-    const trendData = Array.from({ length: 15 }, (_, i) => ({
-        date: `${dayjs().format('M')}/${i * 2 + 1}`,
-        매출: Math.floor(Math.random() * 1000000) + 500000,
-        환불: Math.floor(Math.random() * 100000)
-    }));
+    // Chart Data Mappings
+    const chartTrendData = useMemo(() => {
+        if (!trend) return [];
+        return trend.map(t => ({
+            date: dayjs(t.date).format('M/D'),
+            '매출': t.revenue,
+            '환불': t.refund,
+            '미수': t.unpaid
+        }));
+    }, [trend]);
 
-    // 3. Payment Method Data (Donut Chart)
-    const cardTotal = transactions.filter(tx => tx.method === 'CARD').reduce((sum, tx) => sum + tx.amount, 0);
-    const cashTotal = transactions.filter(tx => tx.method === 'CASH').reduce((sum, tx) => sum + tx.amount, 0);
-    const transferTotal = transactions.filter(tx => tx.method === 'TRANSFER').reduce((sum, tx) => sum + tx.amount, 0);
-
-    // Ensure we have some data for the chart even if transactions are empty
-    const paymentData = [
-        { name: '신용카드', value: cardTotal || 3500000, color: 'indigo.6' },
-        { name: '계좌이체', value: transferTotal || 1200000, color: 'teal.6' },
-        { name: '현금', value: cashTotal || 300000, color: 'gray.6' },
-    ];
+    const chartPaymentData = useMemo(() => {
+        if (!paymentMethods) return [];
+        return paymentMethods.map(m => ({
+            name: m.label || PAYMENT_METHOD_LABELS[m.method as PaymentMethod],
+            value: m.amount,
+            color: m.color || PAYMENT_METHOD_COLORS[m.method as PaymentMethod]
+        }));
+    }, [paymentMethods]);
 
     return (
         <Container size="xl" py="xl">
@@ -58,63 +84,68 @@ export default function FinanceStatsPage() {
                     <Text c="dimmed" size="sm">기간별 매출 현황 및 추이를 확인합니다.</Text>
                 </div>
                 <Group>
-                    <SegmentedControl
-                        value={period}
-                        onChange={setPeriod}
-                        data={[
-                            { label: '일간', value: 'daily' },
-                            { label: '월간', value: 'monthly' }
-                        ]}
-                    />
                     <MonthPickerInput
                         placeholder="기간 선택"
                         leftSection={<IconCalendar size={16} />}
                         value={dateValue}
-                        onChange={(date: any) => setDateValue(date)}
+                        onChange={(date: any) => { setDateValue(date); setPage(1); }}
                         w={150}
                     />
                 </Group>
             </Group>
 
-            {/* 1. Dashboard Summary Strip (Practical, "Substantial" look) */}
+            {/* 1. Summary Metrics */}
             <Paper shadow="sm" radius="md" p="lg" withBorder mb="lg" bg="var(--mantine-color-body)">
                 <Grid gutter="xl">
                     <Grid.Col span={{ base: 12, sm: 6, md: 3 }} style={{ borderRight: '1px solid var(--mantine-color-gray-2)' }}>
-                        <StatItem
-                            label="총 매출액"
-                            value={totalSales}
-                            icon={IconCoin}
-                            color="blue"
-                            trend={+12.5}
-                        />
+                        {isSummaryLoading ? <Skeleton h={80} /> : (
+                            <StatItem
+                                label="총 매출액"
+                                value={summary?.totalSales || 0}
+                                icon={IconCoin}
+                                color="blue"
+                                trend={summary?.growthRate}
+                            />
+                        )}
                     </Grid.Col>
                     <Grid.Col span={{ base: 12, sm: 6, md: 3 }} style={{ borderRight: '1px solid var(--mantine-color-gray-2)' }}>
-                        <StatItem
-                            label="실 결제액 (순매출)"
-                            value={netSales}
-                            icon={IconTrendingUp}
-                            color="indigo"
-                            desc="환불 제외"
-                        />
+                        {isSummaryLoading ? <Skeleton h={80} /> : (
+                            <StatItem
+                                label="실 결제액 (순매출)"
+                                value={summary?.netSales || 0}
+                                icon={IconTrendingUp}
+                                color="indigo"
+                                desc="환불 제외"
+                            />
+                        )}
                     </Grid.Col>
                     <Grid.Col span={{ base: 12, sm: 6, md: 3 }} style={{ borderRight: '1px solid var(--mantine-color-gray-2)' }}>
-                        <StatItem
-                            label="환불 금액"
-                            value={refundAmount}
-                            icon={IconTrendingDown}
-                            color="red"
-                            isCurrency
-                        />
+                        {isSummaryLoading ? <Skeleton h={80} /> : (
+                            <StatItem
+                                label="미수금"
+                                value={summary?.unpaidAmount || 0}
+                                icon={IconAlertCircle}
+                                color="orange"
+                            />
+                        )}
                     </Grid.Col>
                     <Grid.Col span={{ base: 12, sm: 6, md: 3 }}>
-                        <Text c="dimmed" size="xs" fw={700} tt="uppercase">결제 수단 비중 1위</Text>
-                        <Group mt="xs">
-                            <ThemeIcon variant="light" color="indigo" size="lg"><IconCreditCard size={20} /></ThemeIcon>
-                            <div>
-                                <Text fw={700} size="md">신용카드</Text>
-                                <Text size="xs" c="dimmed">전체 65%</Text>
-                            </div>
-                        </Group>
+                        {isSummaryLoading ? <Skeleton h={80} /> : (
+                            <>
+                                <Text c="dimmed" size="xs" fw={700} tt="uppercase">결제 수단 비중 1위</Text>
+                                <Group mt="xs">
+                                    <ThemeIcon variant="light" color="indigo" size="lg"><IconCreditCard size={20} /></ThemeIcon>
+                                    <div>
+                                        <Text fw={700} size="md">
+                                            {summary?.topPaymentMethod ? (PAYMENT_METHOD_LABELS[summary.topPaymentMethod.method as PaymentMethod] || summary.topPaymentMethod.method) : '-'}
+                                        </Text>
+                                        <Text size="xs" c="dimmed">
+                                            {summary?.topPaymentMethod ? `전체 ${summary.topPaymentMethod.percentage}%` : '데이터 없음'}
+                                        </Text>
+                                    </div>
+                                </Group>
+                            </>
+                        )}
                     </Grid.Col>
                 </Grid>
             </Paper>
@@ -127,37 +158,42 @@ export default function FinanceStatsPage() {
                             <Text fw={700} size="lg">매출 추이</Text>
                             <Badge variant="light" color="gray">단위: 원</Badge>
                         </Group>
-                        <AreaChart
-                            h={300}
-                            data={trendData}
-                            dataKey="date"
-                            series={[
-                                { name: '매출', color: 'indigo.6' },
-                                { name: '환불', color: 'red.6' },
-                            ]}
-                            curveType="monotone"
-                            gridAxis="xy"
-                            tickLine="y"
-                            withLegend
-                            legendProps={{ verticalAlign: 'top', height: 30 }}
-                        />
+                        {isTrendLoading ? <Skeleton h={300} /> : (
+                            <AreaChart
+                                h={300}
+                                data={chartTrendData}
+                                dataKey="date"
+                                series={[
+                                    { name: '매출', color: 'indigo.6' },
+                                    { name: '환불', color: 'red.6' },
+                                    { name: '미수', color: 'orange.5' },
+                                ]}
+                                curveType="monotone"
+                                gridAxis="xy"
+                                tickLine="y"
+                                withLegend
+                                legendProps={{ verticalAlign: 'top', height: 30 }}
+                            />
+                        )}
                     </Paper>
                 </Grid.Col>
                 <Grid.Col span={{ base: 12, md: 4 }}>
                     <Paper shadow="sm" radius="md" p="lg" withBorder h="100%">
                         <Text fw={700} size="lg" mb="md">결제 수단별 비중</Text>
-                        <Group justify="center" mb="xl">
-                            <DonutChart
-                                size={180}
-                                thickness={20}
-                                paddingAngle={2}
-                                data={paymentData}
-                                withTooltip
-                                tooltipDataSource="segment"
-                            />
-                        </Group>
-                        <Stack gap="xs">
-                            {paymentData.map((item) => (
+                        {isPaymentLoading ? <Center h={180}><Skeleton circle w={180} h={180} /></Center> : (
+                            <Group justify="center" mb="xl">
+                                <DonutChart
+                                    size={180}
+                                    thickness={20}
+                                    paddingAngle={2}
+                                    data={chartPaymentData}
+                                    withTooltip
+                                    tooltipDataSource="segment"
+                                />
+                            </Group>
+                        )}
+                        <Stack gap="xs" mt="md">
+                            {chartPaymentData.map((item) => (
                                 <Group key={item.name} justify="space-between">
                                     <Group gap="xs">
                                         <div style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: `var(--mantine-color-${item.color})` }} />
@@ -176,44 +212,62 @@ export default function FinanceStatsPage() {
                 <Group justify="space-between" mb="md">
                     <Text fw={700} size="lg">상세 매출 내역</Text>
                 </Group>
-                <Table horizontalSpacing="md" verticalSpacing="sm" highlightOnHover>
-                    <Table.Thead bg="gray.0">
-                        <Table.Tr>
-                            <Table.Th>승인일시</Table.Th>
-                            <Table.Th>상품명</Table.Th>
-                            <Table.Th>회원명</Table.Th>
-                            <Table.Th>결제수단</Table.Th>
-                            <Table.Th style={{ textAlign: 'right' }}>금액</Table.Th>
-                            <Table.Th style={{ textAlign: 'center' }}>상태</Table.Th>
-                        </Table.Tr>
-                    </Table.Thead>
-                    <Table.Tbody>
-                        {transactions.slice(0, 10).map((tx) => (
-                            <Table.Tr key={tx.id}>
-                                <Table.Td>{dayjs(tx.paidAt).format('YYYY-MM-DD HH:mm')}</Table.Td>
-                                <Table.Td fw={500}>{tx.productName}</Table.Td>
-                                <Table.Td>{tx.memberName}</Table.Td>
-                                <Table.Td>
-                                    <Badge variant="dot" color={tx.method === 'CARD' ? 'indigo' : 'teal'}>
-                                        {tx.method === 'CARD' ? '카드' : tx.method === 'TRANSFER' ? '이체' : '현금'}
-                                    </Badge>
-                                </Table.Td>
-                                <Table.Td style={{ textAlign: 'right' }}>{tx.amount.toLocaleString()}원</Table.Td>
-                                <Table.Td style={{ textAlign: 'center' }}>
-                                    {/* Assuming all are PAYMENT for now given the mock model */}
-                                    <Badge size="sm" variant="light" color={'green'}>
-                                        승인
-                                    </Badge>
-                                </Table.Td>
-                            </Table.Tr>
-                        ))}
-                        {transactions.length === 0 && (
-                            <Table.Tr>
-                                <Table.Td colSpan={6} align="center" py="xl" c="dimmed">매출 내역이 없습니다.</Table.Td>
-                            </Table.Tr>
+
+                {isTxLoading ? <Skeleton h={400} /> : (
+                    <>
+                        <Table horizontalSpacing="md" verticalSpacing="sm" highlightOnHover>
+                            <Table.Thead bg="gray.0">
+                                <Table.Tr>
+                                    <Table.Th>승인일시</Table.Th>
+                                    <Table.Th>상품명</Table.Th>
+                                    <Table.Th>회원명</Table.Th>
+                                    <Table.Th>결제수단</Table.Th>
+                                    <Table.Th style={{ textAlign: 'right' }}>금액</Table.Th>
+                                    <Table.Th style={{ textAlign: 'center' }}>상태</Table.Th>
+                                </Table.Tr>
+                            </Table.Thead>
+                            <Table.Tbody>
+                                {transactionsData?.list.map((tx) => (
+                                    <Table.Tr key={tx.id}>
+                                        <Table.Td>{dayjs(tx.paidAt).format('YYYY-MM-DD HH:mm')}</Table.Td>
+                                        <Table.Td fw={500}>{tx.productName}</Table.Td>
+                                        <Table.Td>{tx.memberName}</Table.Td>
+                                        <Table.Td>
+                                            <Badge variant="dot" color={PAYMENT_METHOD_COLORS[tx.method as PaymentMethod]?.split('.')[0] || 'gray'}>
+                                                {PAYMENT_METHOD_LABELS[tx.method as PaymentMethod] || tx.method}
+                                            </Badge>
+                                        </Table.Td>
+                                        <Table.Td style={{ textAlign: 'right' }}>{tx.amount.toLocaleString()}원</Table.Td>
+                                        <Table.Td style={{ textAlign: 'center' }}>
+                                            <Badge
+                                                size="sm"
+                                                variant="light"
+                                                color={tx.status === 'PAID' ? 'green' : 'red'}
+                                            >
+                                                {tx.status === 'PAID' ? '결제완료' : '환불완료'}
+                                            </Badge>
+                                        </Table.Td>
+                                    </Table.Tr>
+                                ))}
+                                {transactionsData?.list.length === 0 && (
+                                    <Table.Tr>
+                                        <Table.Td colSpan={6} align="center" py="xl" c="dimmed">매출 내역이 없습니다.</Table.Td>
+                                    </Table.Tr>
+                                )}
+                            </Table.Tbody>
+                        </Table>
+
+                        {transactionsData && transactionsData.pagination.totalPages > 1 && (
+                            <Group justify="center" mt="xl">
+                                <Pagination
+                                    total={transactionsData.pagination.totalPages}
+                                    value={page}
+                                    onChange={setPage}
+                                />
+                            </Group>
                         )}
-                    </Table.Tbody>
-                </Table>
+                    </>
+                )}
             </Paper>
         </Container>
     );
