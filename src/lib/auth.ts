@@ -1,10 +1,12 @@
-
 import { NextAuthOptions, User } from "next-auth";
 import GoogleProvider from "next-auth/providers/google";
 import KakaoProvider from "next-auth/providers/kakao";
 import CredentialsProvider from "next-auth/providers/credentials";
-import { authApi } from "./api"; // We will need to adjust api.ts or use axios directly here to avoid circular dep if api.ts uses getSession
+import { authApi } from "./api";
 
+/**
+ * 유니코드를 지원하는 안정적인 JWT 디코딩 함수
+ */
 function decodeJwt(token: string) {
     try {
         const base64Url = token.split(".")[1];
@@ -21,28 +23,28 @@ function decodeJwt(token: string) {
     }
 }
 
-// Extend built-in types
+// NextAuth 내부 타입 확장 (organizationId 등 추가)
 declare module "next-auth" {
     interface Session {
         accessToken?: string;
         refreshToken?: string;
         error?: string;
         user: {
-            id?: string | number;
+            id?: string;
             role?: string;
-            organizationId?: number;
+            organizationId?: string; // TSID 대응을 위한 string
             signupToken?: string;
             isSignUpRequired?: boolean;
         } & User;
     }
     interface User {
-        id: string; // NextAuth expects string usually
+        id: string;
         role?: string;
         accessToken?: string;
         refreshToken?: string;
         signupToken?: string;
         isSignUpRequired?: boolean;
-        organizationId?: number;
+        organizationId?: string; // TSID 대응을 위한 string
     }
 }
 
@@ -54,7 +56,7 @@ declare module "next-auth/jwt" {
         accessToken?: string;
         refreshToken?: string;
         role?: string;
-        organizationId?: number;
+        organizationId?: string; // TSID 대응을 위한 string
         signupToken?: string;
         isSignUpRequired?: boolean;
         expiresAt?: number;
@@ -84,9 +86,7 @@ export const authOptions: NextAuthOptions = {
                 name: { label: "Name", type: "text" },
                 email: { label: "Email", type: "text" }
             },
-            async authorize(credentials, req) {
-                // This provider is used to manually update the session after signup/refresh
-                // Relaxed check: Allow just accessToken (e.g. for temp onboarding tokens)
+            async authorize(credentials) {
                 if (credentials?.accessToken) {
                     return {
                         id: credentials.accountId || "manual-update",
@@ -94,7 +94,8 @@ export const authOptions: NextAuthOptions = {
                         refreshToken: credentials.refreshToken || "",
                         role: credentials.role,
                         signupToken: credentials.signupToken,
-                        organizationId: credentials.organizationId ? Number(credentials.organizationId) : undefined,
+                        // TSID 보호를 위해 Number() 변환 없이 String 유지
+                        organizationId: credentials.organizationId ? String(credentials.organizationId) : undefined,
                         name: credentials.name,
                         email: credentials.email,
                     } as User;
@@ -104,12 +105,11 @@ export const authOptions: NextAuthOptions = {
         }),
     ],
     callbacks: {
-        async signIn({ user, account, profile }) {
+        async signIn({ user, account }) {
             if (account?.provider === 'credentials') return true;
 
             if (account && (account.provider === 'google' || account.provider === 'kakao')) {
                 try {
-
                     const loginCommand = {
                         provider: account.provider as 'google' | 'kakao',
                         providerId: account.providerAccountId,
@@ -119,31 +119,26 @@ export const authOptions: NextAuthOptions = {
                     };
 
                     const response = await authApi.login(loginCommand);
-                    console.log("[NextAuth] Backend Login Response:", JSON.stringify(response, null, 2));
-
-                    // Mutate the user object to pass data to the JWT callback
+                    
                     user.accessToken = response.accessToken;
                     user.refreshToken = response.refreshToken;
                     user.isSignUpRequired = response.isSignUpRequired;
-                    // Handle potential snake_case from backend
-                    user.signupToken = response.signupToken || (response as any).signup_token;
-                    // Mapped fields
+                    user.signupToken = response.signupToken;
+
                     if (response.accountId) user.id = String(response.accountId);
                     if (response.identity) user.role = response.identity;
-                    if (response.organizationId) user.organizationId = response.organizationId;
+                    if (response.organizationId) user.organizationId = String(response.organizationId);
 
                     return true;
                 } catch (error) {
                     console.error("Backend login failed during NextAuth signIn", error);
-                    return false; // blocks sign in
+                    return false;
                 }
             }
             return true;
         },
         async jwt({ token, user, account }) {
-            // Initial sign in
             if (user && account) {
-                console.log("[NextAuth] JWT Callback - Initial User:", JSON.stringify(user, null, 2));
                 const decoded = user.accessToken ? decodeJwt(user.accessToken) : null;
                 return {
                     id: user.id,
@@ -155,21 +150,16 @@ export const authOptions: NextAuthOptions = {
                     organizationId: user.organizationId,
                     signupToken: user.signupToken,
                     isSignUpRequired: user.isSignUpRequired,
-                    // Use decoding to find actual expiry, fallback to 1 hour
                     expiresAt: decoded?.exp ? decoded.exp * 1000 : Date.now() + (60 * 60 * 1000),
-                } as any;
+                };
             }
 
-            // Return previous token if the access token has not expired yet
             if (token.expiresAt && Date.now() < token.expiresAt) {
                 return token;
             }
 
-            // Access token has expired, try to update it
-            // Backend Refresh Logic
             try {
                 if (!token.refreshToken || !token.accessToken) throw new Error("No tokens");
-
                 const result = await authApi.reissue({
                     accessToken: token.accessToken,
                     refreshToken: token.refreshToken
@@ -181,7 +171,7 @@ export const authOptions: NextAuthOptions = {
                     accessToken: result.accessToken,
                     refreshToken: result.refreshToken,
                     expiresAt: decoded?.exp ? decoded.exp * 1000 : Date.now() + (60 * 60 * 1000),
-                } as any;
+                };
             } catch (error) {
                 console.error("Error refreshing Access Token", error);
                 return { ...token, error: "RefreshAccessTokenError" as const };
@@ -191,23 +181,15 @@ export const authOptions: NextAuthOptions = {
             session.accessToken = token.accessToken;
             session.refreshToken = token.refreshToken;
             session.error = token.error;
-            session.user.id = token.id as string;
-            session.user.name = token.name;
-            session.user.email = token.email;
+            session.user.id = token.id;
             session.user.role = token.role;
             session.user.organizationId = token.organizationId;
             session.user.isSignUpRequired = token.isSignUpRequired;
             session.user.signupToken = token.signupToken;
-            console.log("[NextAuth] Session Callback - Token:", JSON.stringify(token, null, 2));
             return session;
         }
     },
-    pages: {
-        signIn: '/login',
-        error: '/login', // Error code passed in query string
-    },
-    session: {
-        strategy: "jwt",
-    },
+    pages: { signIn: '/login', error: '/login' },
+    session: { strategy: "jwt" },
     secret: process.env.NEXTAUTH_SECRET || "changeme_dev_secret",
 };
